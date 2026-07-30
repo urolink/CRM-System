@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730j';
+const APP_VERSION = '20260730m';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -561,6 +561,9 @@ function refreshDatalists() {
   fillDatalist('dl-cust', DB.customers.map(c => c.name).sort((a, b) => String(a).localeCompare(String(b), 'ko')));
   fillDatalist('dl-prod', DB.products.map(p => p.name));
   fillDatalist('dl-rep', repNames());
+  /* 기존 값에서 태그·시도 자동완성 목록을 만든다 */
+  fillDatalist('dl-tag', [...new Set(DB.customers.flatMap(c => (c.tags || []).map(t => String(t).trim())))].filter(Boolean));
+  fillDatalist('dl-sido', [...new Set(DB.customers.map(c => c.sido).filter(Boolean))].sort());
 }
 const trimv = v => String(v == null ? '' : v).trim();
 const prodByName = nm => DB.products.find(p => p.name === nm) || DB.products.find(p => p.code === nm);
@@ -934,6 +937,104 @@ function rSumProduct(year, a, b, code) {
   return WON_DEALS().filter(d => (d.productCode || d.product) === code && inRange(d.expectedDate, from, to))
     .reduce((s, d) => s + num(d.amount), 0);
 }
+/* ══ 매출 직접 입력 ══
+   수주 파이프라인을 거치지 않는 매출(소모품 재구매·단발 판매)을 바로 기록한다.
+   내부적으로는 '계약완료' 딜로 저장되므로 종합·매출믹스·영업분석에 그대로 반영된다.
+   src:'direct' 로 표시해 파이프라인에서 올라온 건과 구분한다. */
+function openSaleModal(id) {
+  refreshDatalists();
+  const d = id ? DB.deals.find(x => x.id === id) : null;
+  $('sale-modal-title').innerHTML = '<i class="bi bi-cash-coin me-2" style="color:var(--blue)"></i>'
+    + (d ? '매출 수정' : '매출 입력');
+  $('sl-del-btn').style.display = d ? 'inline-block' : 'none';
+  $('sl-id').value = d ? d.id : '';
+  $('sl-date').value = d ? (d.expectedDate || today()) : today();
+  $('sl-cust').value = d ? custName(d.custId) : '';
+  $('sl-product').value = d ? (d.product || '') : '';
+  $('sl-qty').value = d ? (d.qty || 1) : 1;
+  $('sl-amount').value = d ? comma(d.amount) : '';
+  $('sl-rep').value = d ? (d.rep || '') : ((ME && ME.display_name) || '');
+  $('sl-memo').value = d ? (d.memo || '') : '';
+  new bootstrap.Modal($('saleModal')).show();
+}
+function saleCalc() {
+  const p = prodByName(trimv($('sl-product').value));
+  if (!p) return;
+  $('sl-amount').value = comma(num(p.price) * Math.max(1, num($('sl-qty').value)));
+}
+function saveSale(keepOpen) {
+  if (!trimv($('sl-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
+  if (!trimv($('sl-product').value)) return alert('제품을 입력하거나 선택해주세요.');
+  const amt = num($('sl-amount').value);
+  if (!amt) return alert('금액을 입력해주세요.');
+  const dt = $('sl-date').value || today();
+  const custId = resolveCust($('sl-cust').value);
+  const code = resolveProd($('sl-product').value);
+  const p = prodByCode(code);
+  const row = {
+    custId, productCode: code, product: p ? p.name : trimv($('sl-product').value),
+    qty: num($('sl-qty').value) || 1, amount: amt,
+    stage: '계약완료', prob: 100, expectedDate: dt, closedAt: dt,
+    rep: resolveRep($('sl-rep').value), nextAction: '', nextActionDate: '',
+    memo: trimv($('sl-memo').value), src: 'direct'
+  };
+  const id = $('sl-id').value;
+  if (id) Object.assign(DB.deals.find(x => x.id === id), row);
+  else DB.deals.push(Object.assign({ id: uid(), createdAt: today() }, row));
+  save();
+  if (keepOpen) {
+    $('sl-id').value = ''; $('sl-del-btn').style.display = 'none';
+    $('sl-product').value = ''; $('sl-amount').value = ''; $('sl-qty').value = 1; $('sl-memo').value = '';
+    $('sale-modal-title').innerHTML = '<i class="bi bi-cash-coin me-2" style="color:var(--blue)"></i>매출 입력';
+    $('sl-product').focus();
+    toast('저장했습니다 — 이어서 입력하세요');
+  } else {
+    bootstrap.Modal.getInstance($('saleModal')).hide();
+  }
+  refreshDatalists();
+  if (CUR_PAGE === 'mix') renderMix(); else if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
+}
+function deleteSale() {
+  if (!ensureAdmin()) return;
+  const id = $('sl-id').value;
+  if (!id || !confirm('이 매출 건을 삭제할까요?')) return;
+  DB.deals = DB.deals.filter(x => x.id !== id);
+  save();
+  bootstrap.Modal.getInstance($('saleModal')).hide();
+  renderMix();
+}
+/* 기간 내 확정 매출 목록 */
+function renderSaleList() {
+  if (!$('sale-list')) return;
+  const [y, a, b] = periodOf('mix');
+  const from = y + '-' + pad(a) + '-01', to = ymd(new Date(y, b, 0));
+  const q = trimv(($('sale-search') || {}).value).toLowerCase();
+  const catF = MIX_CAT === 'all' ? null : MIX_CAT;
+  let rows = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || CAT2(d.productCode) === catF));
+  if (q) rows = rows.filter(d => (custName(d.custId) + ' ' + d.product + ' ' + (d.rep || '')).toLowerCase().includes(q));
+  rows.sort((x, z) => String(z.expectedDate).localeCompare(String(x.expectedDate)));
+  const tot = rows.reduce((t, d) => t + num(d.amount), 0);
+  $('sale-list').innerHTML = rows.length
+    ? '<div style="overflow-x:auto"><table class="table table-hover mb-0">'
+      + '<thead><tr><th>매출일</th><th>고객사</th><th>제품</th><th>분류</th><th class="text-center">수량</th>'
+      + '<th class="text-end">금액</th><th>담당</th><th>구분</th><th></th></tr></thead><tbody>'
+      + rows.map(d => {
+          const cat = CAT2(d.productCode), cc = cat === '장비' ? '#16a34a' : '#0e7490';
+          return '<tr><td>' + fmtDate(d.expectedDate) + '</td>'
+            + '<td><a class="cust-link" onclick="openCustDetail(\'' + d.custId + '\')">' + esc(custName(d.custId)) + '</a></td>'
+            + '<td style="max-width:230px;overflow:hidden;text-overflow:ellipsis">' + esc(d.product) + '</td>'
+            + '<td><span class="badge" style="background:' + cc + '1a;color:' + cc + '">' + esc(cat) + '</span></td>'
+            + '<td class="text-center">' + comma(d.qty || 1) + '</td>'
+            + '<td class="text-end fw-bold">' + comma(d.amount) + '</td>'
+            + '<td>' + esc(d.rep || '-') + '</td>'
+            + '<td style="font-size:11px;color:#94a3b8">' + (d.src === 'direct' ? '직접 입력' : '수주 전환') + '</td>'
+            + '<td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openSaleModal(\'' + d.id + '\')"><i class="bi bi-pencil"></i></button></td></tr>';
+        }).join('')
+      + '</tbody><tfoot><tr style="background:#fafbfc"><td class="fw-bold">합계</td><td colspan="4">' + rows.length + '건</td>'
+      + '<td class="text-end fw-bold">' + comma(tot) + '</td><td colspan="3"></td></tr></tfoot></table></div>'
+    : '<div class="table-empty">해당 기간 매출이 없습니다. <b>매출 입력</b>으로 추가하세요.</div>';
+}
+
 function renderMix() {
   const [y, a, b] = periodOf('mix');
   const from = y + '-' + pad(a) + '-01', to = ymd(new Date(y, b, 0));
@@ -998,6 +1099,7 @@ function renderMix() {
     + '<td class="text-center fw-bold">' + list.reduce((s, x) => s + x.cnt, 0) + '</td><td></td>'
     + '<td class="text-end fw-bold">' + comma(tot) + '</td><td class="text-end">100%</td><td></td><td></td></tr></tfoot></table></div>'
     : '<div class="table-empty">해당 기간 수주가 없습니다</div>';
+  renderSaleList();
 }
 
 /* ───────────────────────── 7. 수주관리 ───────────────────────── */
@@ -1876,7 +1978,11 @@ function renderCustomers() {
     if (rep && c.rep !== rep) return false;
     if (rg && c.sido !== rg) return false;
     if (C_TAG && !(c.tags || []).map(t => String(t).trim()).includes(C_TAG)) return false;
-    if (q) return (c.name + ' ' + (c.doctor || '') + ' ' + (c.sido || '') + (c.gugun || '') + ' ' + (c.rep || '') + ' ' + (c.tags || []).join(' ')).toLowerCase().includes(q);
+    if (q) {
+      const ct = (c.contacts || []).map(x => (x.name || '') + ' ' + (x.phone || '') + ' ' + (x.role || '')).join(' ');
+      return (c.name + ' ' + (c.doctor || '') + ' ' + (c.sido || '') + (c.gugun || '') + ' ' + (c.rep || '')
+        + ' ' + (c.tags || []).join(' ') + ' ' + (c.phone || '') + ' ' + (c.addr || '') + ' ' + ct).toLowerCase().includes(q);
+    }
     return true;
   }).sort((a, b) => custWonAmount(b.id) - custWonAmount(a.id));
 
@@ -1894,6 +2000,68 @@ function renderCustomers() {
   </tr>`).join('') : `<tr><td colspan="10" class="table-empty">고객사가 없습니다</td></tr>`;
 }
 function setCTag(t) { C_TAG = t; renderCustomers(); }
+/* ══ 주소 검색 (다음 우편번호 서비스) ══
+   검색 결과에서 우편번호·기본주소를 채우고 시/도·시/군/구를 자동 분해한다. */
+function searchAddress() {
+  if (typeof daum === 'undefined' || !daum.Postcode) {
+    alert('주소 검색 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해주세요.');
+    return;
+  }
+  new daum.Postcode({
+    oncomplete: function (d) {
+      const base = d.roadAddress || d.jibunAddress || d.address || '';
+      $('c-zip').value = d.zonecode || '';
+      $('c-addr').value = base;
+      $('c-sido').value = d.sido || '';
+      $('c-gugun').value = d.sigungu || '';
+      $('c-addr2').focus();
+    }
+  }).open();
+}
+
+/* ══ 연락처 여러 명 ══ */
+const CT_ROLES = ['원장', '부원장', '실장', '간호', '구매', '행정', '기타'];
+function contactRowHtml(c) {
+  c = c || {};
+  return '<div class="ct-row">'
+    + '<select class="form-select form-select-sm ct-role">'
+    + CT_ROLES.map(r => '<option' + (c.role === r ? ' selected' : '') + '>' + esc(r) + '</option>').join('')
+    + '</select>'
+    + '<input type="text" class="form-control form-control-sm ct-name" placeholder="이름" value="' + esc(c.name || '') + '">'
+    + '<input type="text" class="form-control form-control-sm ct-phone" placeholder="연락처" value="' + esc(c.phone || '') + '">'
+    + '<input type="text" class="form-control form-control-sm ct-memo" placeholder="메모 (선호 시간 등)" value="' + esc(c.memo || '') + '">'
+    + '<button class="btn-x" title="삭제" onclick="this.closest(\'.ct-row\').remove();ctEmptyCheck()"><i class="bi bi-x-lg"></i></button>'
+    + '</div>';
+}
+function renderContacts(list) {
+  const box = $('c-contacts');
+  if (!box) return;
+  const arr = (list || []).filter(Boolean);
+  box.innerHTML = arr.length ? arr.map(contactRowHtml).join('')
+    : '<div class="ct-empty">등록된 연락처가 없습니다. <b>연락처 추가</b>로 원장·실장 등을 넣어주세요.</div>';
+}
+function addContactRow() {
+  const box = $('c-contacts');
+  const empty = box.querySelector('.ct-empty');
+  if (empty) empty.remove();
+  box.insertAdjacentHTML('beforeend', contactRowHtml({}));
+  const rows = box.querySelectorAll('.ct-row');
+  const last = rows[rows.length - 1];
+  if (last) last.querySelector('.ct-name').focus();
+}
+function ctEmptyCheck() {
+  const box = $('c-contacts');
+  if (box && !box.querySelector('.ct-row')) renderContacts([]);
+}
+function readContacts() {
+  return [...$('c-contacts').querySelectorAll('.ct-row')].map(r => ({
+    role: r.querySelector('.ct-role').value,
+    name: trimv(r.querySelector('.ct-name').value),
+    phone: trimv(r.querySelector('.ct-phone').value),
+    memo: trimv(r.querySelector('.ct-memo').value)
+  })).filter(c => c.name || c.phone);
+}
+
 function openCustModal(id) {
   refreshSelects();
   const c = id ? custById(id) : null;
@@ -1909,9 +2077,13 @@ function openCustModal(id) {
   $('c-gugun').value = c ? (c.gugun || '') : '';
   $('c-rep-in').value = c ? (c.rep || '') : '';
   $('c-phone').value = c ? (c.phone || '') : '';
+  $('c-zip').value = c ? (c.zip || '') : '';
   $('c-addr').value = c ? (c.addr || '') : '';
+  $('c-addr2').value = c ? (c.addr2 || '') : '';
   $('c-tags').value = c ? (c.tags || []).join(', ') : '';
   $('c-memo').value = c ? (c.memo || '') : '';
+  renderContacts(c ? c.contacts : []);
+  $('c-updated').textContent = (c && c.updatedAt) ? '최종 수정 ' + fmtDate(c.updatedAt) + (c.updatedBy ? ' · ' + c.updatedBy : '') : '';
   new bootstrap.Modal($('custModal')).show();
 }
 function saveCust() {
@@ -1919,8 +2091,11 @@ function saveCust() {
   if (!name) return alert('고객사명을 입력해주세요.');
   const row = { name, type: $('c-type').value, doctor: $('c-doctor').value.trim(), dept: $('c-dept').value.trim(),
     grade: $('c-grade-in').value, sido: $('c-sido').value.trim(), gugun: $('c-gugun').value.trim(),
-    rep: resolveRep($('c-rep-in').value), phone: $('c-phone').value.trim(), addr: $('c-addr').value.trim(),
-    tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim() };
+    rep: resolveRep($('c-rep-in').value), phone: $('c-phone').value.trim(),
+    zip: $('c-zip').value.trim(), addr: $('c-addr').value.trim(), addr2: $('c-addr2').value.trim(),
+    contacts: readContacts(),
+    tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim(),
+    updatedAt: today(), updatedBy: (ME && (ME.display_name || ME.email)) || '' };
   const id = $('c-id').value;
   if (id) Object.assign(custById(id), row);
   else DB.customers.push(Object.assign({ id: uid(), createdAt: today() }, row));
@@ -1969,14 +2144,22 @@ function renderCdBody() {
   if (CD_TAB === 'info') {
     box.innerHTML = `<div class="row g-0" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">
       ${[['구분', c.type], ['원장/담당', c.doctor], ['진료과', c.dept], ['등급', c.grade],
-         ['지역', (c.sido || '') + ' ' + (c.gugun || '')], ['담당영업', c.rep], ['전화', c.phone], ['주소', c.addr],
+         ['지역', (c.sido || '') + ' ' + (c.gugun || '')], ['담당영업', c.rep], ['대표 전화', c.phone],
+         ['주소', ((c.zip ? '(' + c.zip + ') ' : '') + (c.addr || '') + ' ' + (c.addr2 || '')).trim()],
          ['태그', (c.tags || []).join(', ')], ['등록일', fmtDate(c.createdAt)]]
         .map(([k, v]) => `<div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
           <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">${esc(k)}</div>
           <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${esc(v || '-')}</div></div>`).join('')}
       <div class="col-12" style="display:flex">
         <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
-        <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(c.memo || '-')}</div></div></div>`;
+        <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(c.memo || '-')}</div></div></div>`
+      + ((c.contacts || []).length ? `<div class="wt-st mt-3"><i class="bi bi-people me-1"></i>연락처 ${c.contacts.length}명</div>
+        <div class="ct-list">${c.contacts.map(x => `<div class="ct-item">
+          <span class="ct-role">${esc(x.role || '기타')}</span>
+          <b style="min-width:70px">${esc(x.name || '-')}</b>
+          <span style="color:#334155">${esc(x.phone || '')}</span>
+          <span style="color:#94a3b8;margin-left:auto">${esc(x.memo || '')}</span></div>`).join('')}</div>` : '')
+      + (c.updatedAt ? `<div style="font-size:11px;color:#94a3b8;margin-top:10px;text-align:right">최종 수정 ${fmtDate(c.updatedAt)}${c.updatedBy ? ' · ' + esc(c.updatedBy) : ''}</div>` : '');
   } else if (CD_TAB === 'deals') {
     const ds = DB.deals.filter(d => d.custId === id).sort((a, b) => String(b.expectedDate).localeCompare(String(a.expectedDate)));
     box.innerHTML = tbl(['제품','금액','단계','확률','예상일','담당',''], ds.map(d => `
@@ -2705,10 +2888,13 @@ function paintUsers() {
         const me = u.id === (ME && ME.id);
         const off = u.active === false;
         return '<tr>'
-          + '<td><div style="font-weight:700;font-size:13px">' + esc(u.display_name || '-')
-            + (me ? ' <span class="u-badge usr">나</span>' : '')
-            + (off ? ' <span class="u-badge off">비활성</span>' : '') + '</div>'
-            + '<div style="font-size:11.5px;color:#64748b">' + esc(u.email || '') + '</div></td>'
+          + '<td><div class="d-flex align-items-center gap-1">'
+            + '<input type="text" class="form-control form-control-sm" style="max-width:120px;font-weight:700"'
+            + ' value="' + esc(u.display_name || '') + '" placeholder="이름"'
+            + ' onchange="setUserField(\'' + esc(u.id) + '\',\'display_name\',this.value)">'
+            + (me ? '<span class="u-badge usr">나</span>' : '')
+            + (off ? '<span class="u-badge off">비활성</span>' : '') + '</div>'
+            + '<div style="font-size:11.5px;color:#64748b;margin-top:2px">' + esc(u.email || '') + '</div></td>'
           + '<td><input type="text" class="form-control form-control-sm" style="max-width:130px" value="' + esc(u.dept || '')
             + '" placeholder="부서" onchange="setUserField(\'' + esc(u.id) + '\',\'dept\',this.value)"></td>'
           + '<td><input type="text" class="form-control form-control-sm" style="max-width:110px" value="' + esc(u.position || '')
@@ -2734,9 +2920,12 @@ function paintUsers() {
     + '<tbody>' + body + '</tbody></table></div>';
 }
 async function setUserField(id, field, v) {
-  const upd = {}; upd[field] = trimv(v) || null;
+  const val = trimv(v);
+  if (field === 'display_name' && !val) { toast('이름은 비울 수 없습니다'); renderUsers(); return; }
+  const upd = {}; upd[field] = val || null;
   const { error } = await SB.from('ul_profiles').update(upd).eq('id', id);
   if (error) { alert('수정 실패: ' + error.message); renderUsers(); return; }
+  if (field === 'display_name' && ME && ME.id === id) { ME.display_name = val; renderAccountBox(); }
   toast('수정했습니다');
   renderUsers();
 }

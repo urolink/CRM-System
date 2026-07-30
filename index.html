@@ -14,8 +14,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link href="app.css?v=20260730j" rel="stylesheet">
-<script src="config.js?v=20260730j"></script>
+<!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
+<script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+<link href="app.css?v=20260730m" rel="stylesheet">
+<script src="config.js?v=20260730m"></script>
 </head>
 <body>
 
@@ -173,10 +175,11 @@
   <div id="page-mix" class="page">
     <div class="wt-mast">
       <div><div class="kick">UROLINK SALES MIX</div><div class="t"><i class="bi bi-box-seam me-2"></i>장비·소모품 매출</div></div>
-      <div class="d-flex gap-2 flex-wrap">
+      <div class="d-flex gap-2 flex-wrap align-items-center">
         <button class="wt-tab on" onclick="mixTab('all',this)"><i class="bi bi-layers"></i>전체</button>
         <button class="wt-tab" onclick="mixTab('장비',this)"><i class="bi bi-box-seam"></i>장비</button>
         <button class="wt-tab" onclick="mixTab('소모품',this)"><i class="bi bi-capsule"></i>소모품</button>
+        <button class="btn btn-primary btn-sm ms-2" onclick="openSaleModal()"><i class="bi bi-plus-lg me-1"></i>매출 입력</button>
       </div>
     </div>
     <div class="period-bar">
@@ -192,9 +195,18 @@
       <div class="fw-bold mb-2" style="font-size:13px"><i class="bi bi-bar-chart me-1" style="color:#374151"></i>제품별 수주 <span style="font-size:11px;font-weight:400;color:#64748b">단위 백만원</span></div>
       <div style="position:relative;height:240px"><canvas id="mix-chart"></canvas></div>
     </div>
-    <div class="card p-0">
+    <div class="card p-0 mb-3">
       <div class="p-3 border-bottom fw-bold" style="font-size:13px">제품별 상세</div>
       <div id="mix-table"></div>
+    </div>
+    <div class="card p-0">
+      <div class="p-3 border-bottom d-flex align-items-center gap-2 flex-wrap">
+        <div class="fw-bold" style="font-size:13px">매출 내역 <span style="font-size:11px;font-weight:400;color:#94a3b8">· 기간 내 확정 건, 행 클릭 시 수정</span></div>
+        <input type="text" id="sale-search" class="form-control form-control-sm" style="max-width:200px"
+               placeholder="고객사 · 제품 · 담당자" oninput="renderSaleList()">
+        <button class="btn btn-primary btn-sm ms-auto" onclick="openSaleModal()"><i class="bi bi-plus-lg me-1"></i>매출 입력</button>
+      </div>
+      <div id="sale-list"></div>
     </div>
   </div>
 
@@ -542,6 +554,42 @@
   </div>
 </div></div></div>
 
+<!-- ══════════ 모달: 매출 입력 ══════════ -->
+<div class="modal fade" id="saleModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title" id="sale-modal-title"><i class="bi bi-cash-coin me-2" style="color:var(--blue)"></i>매출 입력</h5>
+    <button class="btn-close" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="sl-id">
+    <div style="font-size:12.5px;color:#64748b;margin-bottom:14px">
+      수주 파이프라인을 거치지 않은 매출(소모품 재구매, 단발 판매 등)을 바로 입력합니다.
+      입력하면 <b>종합 · 장비·소모품 매출 · 영업 분석</b>에 즉시 반영됩니다.
+    </div>
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label">매출일 *</label><input type="date" class="form-control" id="sl-date"></div>
+      <div class="col-md-8"><label class="form-label">고객사 *</label>
+        <input type="text" class="form-control" id="sl-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
+      <div class="col-md-8"><label class="form-label">제품 *</label>
+        <input type="text" class="form-control" id="sl-product" list="dl-prod" placeholder="제품명 입력 · 선택" autocomplete="off" oninput="saleCalc()"></div>
+      <div class="col-md-4"><label class="form-label">수량</label>
+        <input type="number" class="form-control" id="sl-qty" value="1" min="1" oninput="saleCalc()"></div>
+      <div class="col-md-6"><label class="form-label">금액(원) *</label>
+        <input type="text" class="form-control" id="sl-amount" inputmode="numeric" oninput="commaInput(this)"></div>
+      <div class="col-md-6"><label class="form-label">담당자</label>
+        <input type="text" class="form-control" id="sl-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
+      <div class="col-12"><label class="form-label">메모</label>
+        <textarea class="form-control" id="sl-memo" rows="2" placeholder="발주번호, 결제조건 등"></textarea></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="sl-del-btn" onclick="deleteSale()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-outline-primary" onclick="saveSale(true)">저장 후 계속 입력</button>
+    <button class="btn btn-primary" onclick="saveSale(false)">저장</button>
+  </div>
+</div></div></div>
+
 <!-- ══════════ 모달: 고객사 ══════════ -->
 <div class="modal fade" id="custModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title" id="cust-modal-title">고객사 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -555,22 +603,48 @@
       <div class="col-md-4"><label class="form-label">진료과</label><input type="text" class="form-control" id="c-dept" placeholder="비뇨의학과"></div>
       <div class="col-md-4"><label class="form-label">등급</label><select class="form-select" id="c-grade-in">
         <option>A</option><option selected>B</option><option>C</option><option>D</option></select></div>
-      <div class="col-md-4"><label class="form-label">시/도</label><input type="text" class="form-control" id="c-sido" placeholder="서울"></div>
-      <div class="col-md-4"><label class="form-label">시/군/구</label><input type="text" class="form-control" id="c-gugun" placeholder="강남구"></div>
       <div class="col-md-4"><label class="form-label">담당영업</label><input type="text" class="form-control" id="c-rep-in" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
-      <div class="col-md-4"><label class="form-label">전화</label><input type="text" class="form-control" id="c-phone"></div>
-      <div class="col-md-8"><label class="form-label">주소</label><input type="text" class="form-control" id="c-addr"></div>
-      <div class="col-12"><label class="form-label">태그 <span style="font-weight:400;color:#94a3b8">쉼표로 구분</span></label>
-        <input type="text" class="form-control" id="c-tags" placeholder="예: ESWL보유, 학회활동, 다점포"></div>
-      <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="c-memo" rows="2"></textarea></div>
+      <div class="col-md-4"><label class="form-label">대표 전화</label><input type="text" class="form-control" id="c-phone" placeholder="02-000-0000"></div>
+
+      <!-- 주소 (검색으로 시/도·시/군/구 자동 입력) -->
+      <div class="col-12"><div class="wt-st mt-1">주소</div></div>
+      <div class="col-md-3"><label class="form-label">우편번호</label>
+        <div class="d-flex gap-2">
+          <input type="text" class="form-control" id="c-zip" readonly placeholder="-">
+          <button class="btn btn-outline-primary btn-sm" style="white-space:nowrap" onclick="searchAddress()"><i class="bi bi-search"></i> 검색</button>
+        </div></div>
+      <div class="col-md-9"><label class="form-label">기본 주소</label>
+        <input type="text" class="form-control" id="c-addr" placeholder="검색 버튼으로 입력 (직접 입력도 가능)"></div>
+      <div class="col-md-5"><label class="form-label">상세 주소 <span style="font-weight:400;color:#94a3b8">동·호수 등</span></label>
+        <input type="text" class="form-control" id="c-addr2" placeholder="3층 301호"></div>
+      <div class="col-md-3"><label class="form-label">시/도</label><input type="text" class="form-control" id="c-sido" list="dl-sido" placeholder="서울" autocomplete="off"></div>
+      <div class="col-md-4"><label class="form-label">시/군/구</label><input type="text" class="form-control" id="c-gugun" placeholder="강남구"></div>
+
+      <!-- 연락처 여러 명 -->
+      <div class="col-12">
+        <div class="d-flex align-items-center gap-2 mt-1">
+          <div class="wt-st mb-0" style="border:0;padding:0"><i class="bi bi-people me-1"></i>연락처
+            <span style="font-size:11px;font-weight:500;color:#94a3b8">· 원장 · 실장 · 구매 등 여러 명</span></div>
+          <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="addContactRow()"><i class="bi bi-plus-lg"></i> 연락처 추가</button>
+        </div>
+        <div id="c-contacts" class="mt-2"></div>
+      </div>
+
+      <div class="col-12"><label class="form-label">태그 <span style="font-weight:400;color:#94a3b8">쉼표로 구분 · 기존 태그는 자동완성</span></label>
+        <input type="text" class="form-control" id="c-tags" list="dl-tag" placeholder="예: ESWL보유, 학회활동, 다점포" autocomplete="off"></div>
+      <div class="col-12"><label class="form-label">메모</label>
+        <textarea class="form-control" id="c-memo" rows="3" placeholder="방문·통화 기록, 재구매 일정, 특이사항 등. 모든 담당자가 함께 봅니다."></textarea></div>
     </div>
   </div>
   <div class="modal-footer">
     <button class="btn btn-outline-danger btn-sm me-auto" id="c-del-btn" onclick="deleteCust()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <span id="c-updated" style="font-size:11px;color:#94a3b8;margin-right:auto"></span>
     <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
     <button class="btn btn-primary" onclick="saveCust()">저장</button>
   </div>
 </div></div></div>
+<datalist id="dl-tag"></datalist>
+<datalist id="dl-sido"></datalist>
 
 <!-- ══════════ 모달: 고객사 상세 ══════════ -->
 <div class="modal fade" id="custDetailModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
@@ -909,6 +983,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260730j"></script>
+<script src="app.js?v=20260730m"></script>
 </body>
 </html>

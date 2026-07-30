@@ -298,6 +298,21 @@ body.locked>.main,body.locked>.sidebar,body.locked>#m-bottomnav,body.locked>#pdf
 #sidebar-tools .sb-tool .sb-lb{flex:1}
 #sidebar-tools .sb-tool:hover{background:var(--sidebar-hover);color:#1c2534}
 
+/* ── 고객사 연락처 여러 명 (원텍 병원정보 톤) ── */
+.ct-row{display:grid;grid-template-columns:110px 1fr 1fr 1.2fr 32px;gap:8px;align-items:center;margin-bottom:7px}
+.ct-row .btn-x{background:none;border:0;color:#cbd5e1;font-size:15px;cursor:pointer;padding:0;line-height:1}
+.ct-row .btn-x:hover{color:#dc2626}
+.ct-empty{font-size:12.5px;color:#94a3b8;padding:10px 0}
+@media(max-width:768px){
+  .ct-row{grid-template-columns:1fr 1fr;gap:6px;padding:10px;border:1px solid var(--border);border-radius:10px;margin-bottom:9px}
+  .ct-row .btn-x{justify-self:end}
+}
+/* 상세 모달 연락처 표 */
+.ct-list{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:8px}
+.ct-list .ct-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12.5px}
+.ct-list .ct-item:last-child{border-bottom:0}
+.ct-list .ct-role{font-size:10px;font-weight:800;background:#e6f4f8;color:#0e7490;border-radius:4px;padding:2px 7px;flex-shrink:0}
+
 /* ── 사용자 추가: 역할 카드 (원텍 접근권한 카드 톤) ── */
 .role-card{display:flex;align-items:center;gap:11px;border:1px solid var(--border);border-radius:12px;
   padding:12px 16px;cursor:pointer;transition:all .15s;background:#fff;flex:1 1 240px;min-width:0}
