@@ -325,6 +325,28 @@ function seed() {
              closedAt: (r[3] === '계약완료' || r[3] === '실주') ? r[4] : '' };
   });
 
+  /* 전년 실적 — 전년 동기간·YoY 비교가 화면 전반에 쓰이므로 함께 시드 */
+  const PY = Y - 1;
+  const PREV = [
+    // [고객, 제품코드, 금액, 월, 담당]
+    ['c1','UL-L500', 232000000,11,'김성호'], ['c1','UL-BK19',  9800000, 6,'김성호'],
+    ['c2','UL-S300',  12100000, 5,'김성호'], ['c3','UL-F200', 17200000, 9,'이지현'],
+    ['c4','UL-SF7',   39500000, 4,'이지현'], ['c5','UL-BK19',  7400000, 7,'이지현'],
+    ['c6','UL-H100', 158000000,10,'박준영'], ['c6','UL-FB273', 8200000, 8,'박준영'],
+    ['c7','UL-S300',  12400000,11,'박준영'], ['c9','UL-L900',305000000, 9,'최다희'],
+    ['c9','UL-ST6',    5200000,10,'최다희'], ['c10','UL-DX',  45000000, 7,'최다희'],
+    ['c12','UL-WR38',  3400000,12,'최다희'], ['c14','UL-BK19',18500000, 4,'김성호'],
+    ['c14','UL-ST6',   8800000, 9,'김성호'], ['c13','UL-F200',17600000, 7,'이지현'],
+    ['c8','UL-S300',  12600000, 1,'박준영'], ['c11','UL-F200',17900000, 5,'최다희']
+  ];
+  PREV.forEach((r, i) => {
+    const p = DB.products.find(x => x.code === r[1]);
+    const dt = PY + '-' + pad(r[3]) + '-15';
+    DB.deals.push({ id: 'p' + (i + 1), custId: r[0], productCode: r[1], product: p ? p.name : r[1],
+      qty: 1, amount: r[2], stage: '계약완료', prob: 100, expectedDate: dt, rep: r[4],
+      nextAction: '', nextActionDate: '', memo: '', createdAt: PY + '-' + pad(r[3]) + '-01', closedAt: dt });
+  });
+
   const LG = [
     ['c1','방문','홀뮴 레이저 100W 최종 사양 협의. 기존 80W 대비 파워·파이버 호환성 문의.','UL-H100','원장 결재 확인','김성호',dd(-4)],
     ['c1','전화','소모품 단가 인상분 문의 대응. 연간 계약 전환 제안.','UL-BK19','연간 계약 견적','김성호',dd(-11)],
@@ -408,9 +430,12 @@ function seed() {
 }
 
 /* ───────────────────────── 5. 라우팅 ───────────────────────── */
-const PAGES = ['overview','analysis','sales','schedule','quotes','customers','equipments','products','settings'];
+const PAGES = ['overview','mix','dashboard','analysis','sales','schedule','quotes','customers','equipments','products','settings'];
+/* 사이드바 하이라이트 귀속: 장비 페이지는 '고객사·장비' 메뉴에 속함 */
+const NAV_OF = { equipments: 'customers' };
 const RENDER = {
-  overview: () => renderOverview(), analysis: () => renderAnalysis(), sales: () => renderSales(),
+  overview: () => renderOverview(), mix: () => renderMix(), dashboard: () => renderDashboard(),
+  analysis: () => renderAnalysis(), sales: () => renderSales(),
   schedule: () => renderSchedule(), quotes: () => renderQuotes(), customers: () => renderCustomers(),
   equipments: () => renderEquip(), products: () => renderProducts(), settings: () => renderSettings()
 };
@@ -420,8 +445,9 @@ function showPage(page, el) {
   if (!PAGES.includes(page)) page = 'overview';
   CUR_PAGE = page;
   PAGES.forEach(p => $('page-' + p).classList.toggle('active', p === page));
-  document.querySelectorAll('.sidebar .nav-link[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === page));
-  document.querySelectorAll('#m-bottomnav button[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  const navKey = NAV_OF[page] || page;
+  document.querySelectorAll('.sidebar .nav-link[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === navKey));
+  document.querySelectorAll('#m-bottomnav button[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === navKey));
   if (el && !el.dataset.page) { /* 사이드바 외 호출 */ }
   try { history.replaceState(null, '', '#' + page); } catch (e) { location.hash = page; }
   closeSidebar();
@@ -433,12 +459,13 @@ function closeSidebar() { $('sidebar').classList.remove('open'); $('sidebarOverl
 
 function refreshCounts() {
   if (!DB) return;   // 로그인 직후 서버 로드 이전(DB 미생성) 시점 방어
-  $('cnt-deals').textContent  = DB.deals.filter(d => OPEN_STAGES.includes(d.stage)).length || '';
-  $('cnt-sch').textContent    = DB.schedules.filter(s => !s.done && (dDays(s.date) ?? -99) >= 0).length || '';
-  $('cnt-quotes').textContent = DB.quotes.length || '';
-  $('cnt-cust').textContent   = DB.customers.length || '';
-  $('cnt-equip').textContent  = DB.equipments.length || '';
-  $('cnt-prod').textContent   = DB.products.length || '';
+  const setCnt = (id, v) => { const el = $(id); if (el) el.textContent = v || ''; };
+  setCnt('cnt-deals',  DB.deals.filter(d => OPEN_STAGES.includes(d.stage)).length);
+  setCnt('cnt-sch',    DB.schedules.filter(s => !s.done && (dDays(s.date) ?? -99) >= 0).length);
+  setCnt('cnt-quotes', DB.quotes.length);
+  setCnt('cnt-cust',   DB.customers.length);
+  setCnt('cnt-equip',  DB.equipments.length);
+  setCnt('cnt-prod',   DB.products.length);
   renderBanner();
   const u = DB.meta.updatedAt ? new Date(DB.meta.updatedAt) : null;
   $('footer-meta').textContent = u ? '최근 저장 ' + u.getFullYear() + '.' + pad(u.getMonth() + 1) + '.' + pad(u.getDate()) + ' ' + pad(u.getHours()) + ':' + pad(u.getMinutes()) : '';
@@ -507,30 +534,30 @@ function refreshSelects() {
   }
 }
 
-/* ───────────────────────── 6. 종합 현황 ───────────────────────── */
-let OV_PERIOD = 'year';
+/* ───────────────────────── 6. 현황판 (구 종합 현황) ───────────────────────── */
+let DB_PERIOD = 'year';
 let CHARTS = {};
 function chart(id, cfg) {
   if (CHARTS[id]) { CHARTS[id].destroy(); delete CHARTS[id]; }
   const el = $(id); if (!el) return;
   CHARTS[id] = new Chart(el, cfg);
 }
-function setOvPeriod(p, el) {
-  OV_PERIOD = p;
-  document.querySelectorAll('#ov-period-btns .dash-period-btn').forEach(b => b.classList.remove('on'));
+function setDbPeriod(p, el) {
+  DB_PERIOD = p;
+  document.querySelectorAll('#db-period-btns .dash-period-btn').forEach(b => b.classList.remove('on'));
   if (el) el.classList.add('on');
   renderOverview();
 }
-function ovRange() {
+function dbRange() {
   const now = new Date(), y = now.getFullYear(), m = now.getMonth() + 1;
-  if (OV_PERIOD === 'month') return [`${y}-${pad(m)}-01`, ymd(new Date(y, m, 0))];
-  if (OV_PERIOD === 'quarter') { const q = Math.floor((m - 1) / 3), s = q * 3 + 1; return [`${y}-${pad(s)}-01`, ymd(new Date(y, s + 2, 0))]; }
+  if (DB_PERIOD === 'month') return [`${y}-${pad(m)}-01`, ymd(new Date(y, m, 0))];
+  if (DB_PERIOD === 'quarter') { const q = Math.floor((m - 1) / 3), s = q * 3 + 1; return [`${y}-${pad(s)}-01`, ymd(new Date(y, s + 2, 0))]; }
   return [`${y}-01-01`, `${y}-12-31`];
 }
 
-function renderOverview() {
-  const [a, b] = ovRange();
-  const label = OV_PERIOD === 'month' ? '이번달' : OV_PERIOD === 'quarter' ? '이번분기' : '올해';
+function renderDashboard() {
+  const [a, b] = dbRange();
+  const label = DB_PERIOD === 'month' ? '이번달' : DB_PERIOD === 'quarter' ? '이번분기' : '올해';
   const inP = DB.deals.filter(d => inRange(d.expectedDate, a, b));
   const wonD = inP.filter(d => d.stage === '계약완료');
   const lostD = inP.filter(d => d.stage === '실주');
@@ -541,7 +568,7 @@ function renderOverview() {
   const closed = wonD.length + lostD.length;
   const winRate = closed ? Math.round(wonD.length / closed * 100) : 0;
 
-  $('ov-band').innerHTML = `
+  $('db-band').innerHTML = `
     <div class="wt-hero">
       <div class="l">${esc(label)} 확정 수주 (계약완료)</div>
       <b>${money(wonAmt)}원</b>
@@ -568,7 +595,7 @@ function renderOverview() {
   }
   const mAmt = months.map(m => DB.deals.filter(d => d.stage === '계약완료' && String(d.expectedDate).slice(0, 7) === m).reduce((s, d) => s + num(d.amount), 0));
   const mCnt = months.map(m => DB.deals.filter(d => d.stage === '계약완료' && String(d.expectedDate).slice(0, 7) === m).length);
-  chart('chart-ov-month', {
+  chart('chart-db-month', {
     type: 'bar',
     data: { labels, datasets: [
       { label: '수주액', data: mAmt, backgroundColor: '#0e7490', borderRadius: 5, yAxisID: 'y', order: 2 },
@@ -584,24 +611,24 @@ function renderOverview() {
 
   /* 단계 퍼널 */
   const maxA = Math.max(1, ...OPEN_STAGES.map(s => openD.filter(d => d.stage === s).reduce((t, d) => t + num(d.amount), 0)));
-  $('ov-funnel').innerHTML = OPEN_STAGES.map(s => {
+  $('db-funnel').innerHTML = OPEN_STAGES.map(s => {
     const ds = openD.filter(d => d.stage === s), amt = ds.reduce((t, d) => t + num(d.amount), 0);
     return `<div class="funnel-row">
       <div class="funnel-label">${esc(s)}</div>
       <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${amt / maxA * 100}%;background:${stageOf(s).color}">${ds.length ? ds.length + '건' : ''}</div></div>
       <div class="funnel-amt">${money(amt)}</div></div>`;
   }).join('');
-  $('ov-funnel-sum').innerHTML = `<div class="d-flex justify-content-between" style="font-size:12px">
+  $('db-funnel-sum').innerHTML = `<div class="d-flex justify-content-between" style="font-size:12px">
     <span style="color:#64748b;font-weight:600">열린 딜 합계</span><strong>${won(openAmt)}</strong></div>`;
 
   /* 매출 전망 바 */
   const tot = wonAmt + wgt;
-  $('ov-fc-label').textContent = '· ' + label + ' 확정 + 진행 딜 확률가중';
-  $('ov-fc-total').textContent = money(tot) + '원';
-  $('ov-bar-won').style.width = tot ? (wonAmt / tot * 100) + '%' : '0%';
-  $('ov-bar-exp').style.width = tot ? (wgt / tot * 100) + '%' : '0%';
-  $('ov-bar-won-v').textContent = money(wonAmt) + '원';
-  $('ov-bar-exp-v').textContent = money(wgt) + '원';
+  $('db-fc-label').textContent = '· ' + label + ' 확정 + 진행 딜 확률가중';
+  $('db-fc-total').textContent = money(tot) + '원';
+  $('db-bar-won').style.width = tot ? (wonAmt / tot * 100) + '%' : '0%';
+  $('db-bar-exp').style.width = tot ? (wgt / tot * 100) + '%' : '0%';
+  $('db-bar-won-v').textContent = money(wonAmt) + '원';
+  $('db-bar-exp-v').textContent = money(wgt) + '원';
 
   /* 다음 액션 */
   const acts = [];
@@ -613,10 +640,10 @@ function renderOverview() {
   const od = acts.filter(x => (dDays(x.date) ?? 99) < 0).length;
   const td = acts.filter(x => dDays(x.date) === 0).length;
   const wk = acts.filter(x => { const n = dDays(x.date); return n > 0 && n <= 7; }).length;
-  $('ov-act-od').textContent = '지연 ' + od;
-  $('ov-act-td').textContent = '오늘 ' + td;
-  $('ov-act-wk').textContent = '7일 내 ' + wk;
-  $('ov-action-board').innerHTML = acts.length ? acts.slice(0, 40).map(x => {
+  $('db-act-od').textContent = '지연 ' + od;
+  $('db-act-td').textContent = '오늘 ' + td;
+  $('db-act-wk').textContent = '7일 내 ' + wk;
+  $('db-action-board').innerHTML = acts.length ? acts.slice(0, 40).map(x => {
     const n = dDays(x.date);
     const flag = n == null ? '' : n < 0 ? `<span class="dc-flag od">${-n}일 지연</span>` : n === 0 ? `<span class="dc-flag td">오늘</span>` : `<span style="font-size:10px;color:#94a3b8">D+${n}</span>`;
     const click = x.kind === 'deal' ? `openDrawer('${x.id}')` : `openSchModal('${x.id}')`;
@@ -646,13 +673,231 @@ function renderOverview() {
     if ((c.grade === 'A' || c.grade === 'B') && (n == null || n > 60))
       alerts.push({ ic: 'bi-person-dash', c: '#7c3aed', t: c.name, s: last ? `${n}일간 접촉 없음 (${c.grade}등급)` : `접촉 이력 없음 (${c.grade}등급)`, go: `openCustDetail('${c.id}')` });
   });
-  $('ov-alerts').innerHTML = alerts.length ? alerts.slice(0, 20).map(x =>
+  $('db-alerts').innerHTML = alerts.length ? alerts.slice(0, 20).map(x =>
     `<div onclick="${x.go}" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;background:#fafbfc;border:1px solid #eef1f5;margin-bottom:6px;cursor:pointer">
       <i class="bi ${x.ic}" style="color:${x.c};font-size:15px"></i>
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.t)}</div>
         <div style="font-size:11px;color:#64748b">${esc(x.s)}</div></div></div>`).join('')
     : `<div class="text-center" style="padding:30px;color:#94a3b8;font-size:13px">특이사항 없습니다</div>`;
+}
+
+/* ═══════════════ 6b. 종합 · 장비/소모품 매출 (원텍 한국영업 레이아웃 이식) ═══════════════ */
+/* 제품 분류를 장비 / 소모품 2분할로 환원 (액세서리·서비스는 소모품에 합산) */
+const CAT2 = code => ((prodByCode(code) || {}).cat === '장비' ? '장비' : '소모품');
+const WON_DEALS = () => DB.deals.filter(d => d.stage === '계약완료');
+
+function mSum(year, m, cat) {
+  return WON_DEALS().reduce((t, d) => {
+    const s = String(d.expectedDate || '');
+    if (num(s.slice(0, 4)) !== year || num(s.slice(5, 7)) !== m) return t;
+    if (cat && CAT2(d.productCode) !== cat) return t;
+    return t + num(d.amount);
+  }, 0);
+}
+function rSum(year, a, b, cat) { let t = 0; for (let m = a; m <= b; m++) t += mSum(year, m, cat); return t; }
+function badgeYoy(cur, prev) {
+  if (!prev) return '<span class="yoy na">전년 -</span>';
+  const r = (cur / prev - 1) * 100;
+  return '<span class="yoy ' + (r >= 0 ? 'up' : 'dn') + '">' + (r >= 0 ? '▲' : '▼') + Math.abs(r).toFixed(1) + '%</span>';
+}
+function dealYears() {
+  const ys = [...new Set(DB.deals.map(d => num(String(d.expectedDate).slice(0, 4))).filter(y => y > 2000))];
+  const cy = new Date().getFullYear();
+  if (!ys.includes(cy)) ys.push(cy);
+  return ys.sort((x, y) => y - x);
+}
+function initPeriodSel(pfx) {
+  const ySel = $(pfx + '-year');
+  if (!ySel || ySel.options.length) return;
+  fillSelect(ySel, dealYears().map(y => ({ v: y, l: y + '년' })));
+  ySel.value = new Date().getFullYear();
+  const months = Array.from({ length: 12 }, (_, i) => ({ v: i + 1, l: (i + 1) + '월' }));
+  fillSelect($(pfx + '-from'), months); $(pfx + '-from').value = 1;
+  fillSelect($(pfx + '-to'), months);   $(pfx + '-to').value = new Date().getMonth() + 1;
+}
+function periodOf(pfx) {
+  initPeriodSel(pfx);
+  const y = num($(pfx + '-year').value) || new Date().getFullYear();
+  let a = num($(pfx + '-from').value) || 1, b = num($(pfx + '-to').value) || 12;
+  if (a > b) { const t = a; a = b; b = t; }
+  return [y, a, b];
+}
+const mw = v => Math.round(num(v) / 1e6);   /* 백만원 */
+
+function renderOverview() {
+  const [y, a, b] = periodOf('ov');
+  $('ov-desc').textContent = y + '년 ' + a + '월 ~ ' + b + '월 · 계약완료(수주) 기준';
+  const u = DB.meta.updatedAt ? new Date(DB.meta.updatedAt) : null;
+  $('ov-updated').innerHTML = (u ? '최근 갱신 ' + u.getFullYear() + '.' + pad(u.getMonth() + 1) + '.' + pad(u.getDate()) + ' ' + pad(u.getHours()) + ':' + pad(u.getMinutes()) : '')
+    + '<br><span style="color:#94a3b8">전체 딜 ' + DB.deals.length + '건 · 고객사 ' + DB.customers.length + '곳 · 설치 ' + DB.equipments.length + '대</span>';
+
+  /* 당월(기간 마지막달) / 누계(기간 전체) */
+  const moT = mSum(y, b), moD = mSum(y, b, '장비'), moC = mSum(y, b, '소모품');
+  const moPT = mSum(y - 1, b), moPD = mSum(y - 1, b, '장비'), moPC = mSum(y - 1, b, '소모품');
+  const ytT = rSum(y, a, b), ytD = rSum(y, a, b, '장비'), ytC = rSum(y, a, b, '소모품');
+  const ypT = rSum(y - 1, a, b), ypD = rSum(y - 1, a, b, '장비'), ypC = rSum(y - 1, a, b, '소모품');
+
+  const openD = DB.deals.filter(d => OPEN_STAGES.includes(d.stage));
+  const openAmt = openD.reduce((s, d) => s + num(d.amount), 0);
+  const wgt = openD.reduce((s, d) => s + num(d.amount) * num(d.prob) / 100, 0);
+
+  const mini = (lab, v, pv) => '<div><div class="cdud-mini">' + lab + '</div>'
+    + '<div class="cdud-mini-v">' + money(v) + '</div>'
+    + '<div class="cdud-mini-s">전년 ' + money(pv) + ' ' + badgeYoy(v, pv) + '</div></div>';
+  const half = (lab, v, sub, d, c, brd) => '<div class="cdud-half" style="flex:1 1 340px;display:flex;align-items:center;gap:18px;min-width:0;'
+    + (brd ? 'border-left:1px solid #e4e8ef;padding-left:24px' : 'padding-right:20px') + '">'
+    + '<div class="cdud-hero" style="flex:1.3;padding-right:0" onclick="showPage(\'mix\')"><span class="l">' + lab + '</span><b>' + money(v) + '</b><span class="s">' + sub + '</span></div>'
+    + '<div style="display:flex;flex-direction:column;gap:11px;min-width:92px;border-left:1px solid #eef2f7;padding-left:14px">' + d + c + '</div></div>';
+
+  $('ov-kpi').innerHTML = '<div class="cdud" style="padding:18px 22px;margin:0">'
+    + '<div style="display:flex;flex-wrap:wrap;align-items:stretch;padding:2px 0 4px">'
+    + half('당월 · ' + b + '월', moT, '전년 동월 ' + money(moPT) + ' ' + badgeYoy(moT, moPT), mini('장비', moD, moPD), mini('소모품', moC, moPC), false)
+    + half('누계 · ' + y + '년 ' + a + '~' + b + '월', ytT, '전년 동기간 ' + money(ypT) + ' ' + badgeYoy(ytT, ypT), mini('장비', ytD, ypD), mini('소모품', ytC, ypC), true)
+    + '</div>'
+    + '<div style="font-size:11px;color:#64748b;padding-top:8px;border-top:1px solid #e4e8ef;margin-top:6px">'
+    + '진행 파이프라인 <b style="color:#182230">' + money(openAmt) + '</b> (' + openD.length + '건) · '
+    + '확률가중 예상 <b style="color:#182230">' + money(wgt) + '</b> · '
+    + '기간 합계 대비 <b style="color:#0e7490">' + (ytT ? Math.round(wgt / ytT * 100) : 0) + '%</b> 규모'
+    + '</div></div>';
+
+  /* 월별 차트 — 장비/소모품 누적 막대 + 작년 합계 점선 */
+  const labels = Array.from({ length: 12 }, (_, i) => (i + 1) + '월');
+  const dev = [], cons = [], prev = [];
+  for (let m = 1; m <= 12; m++) { dev.push(mw(mSum(y, m, '장비'))); cons.push(mw(mSum(y, m, '소모품'))); prev.push(mw(mSum(y - 1, m))); }
+  chart('ov-chart-monthly', {
+    data: { labels, datasets: [
+      { type: 'bar', label: '장비', data: dev, backgroundColor: '#16a34a', stack: 's', borderRadius: 3 },
+      { type: 'bar', label: '소모품', data: cons, backgroundColor: '#0e7490', stack: 's', borderRadius: 3 },
+      { type: 'line', label: (y - 1) + '년 합계', data: prev, borderColor: '#94a3b8', borderDash: [5, 4], borderWidth: 2, pointRadius: 2, backgroundColor: '#94a3b8' }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ' ' + comma(c.parsed.y) + '백만원' } } },
+      scales: { x: { stacked: true, ticks: { font: { size: 10 } }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: '#f1f5f9' } } } }
+  });
+
+  /* 월별 표 */
+  const rowsHtml = [
+    ['장비', m => mSum(y, m, '장비'), '#16a34a'],
+    ['소모품', m => mSum(y, m, '소모품'), '#0e7490'],
+    ['합계', m => mSum(y, m), '#182230'],
+    [(y - 1) + '년', m => mSum(y - 1, m), '#94a3b8']
+  ].map(row => {
+    const lab = row[0], fn = row[1], col = row[2];
+    let tot = 0;
+    const tds = Array.from({ length: 12 }, (_, i) => { const v = fn(i + 1); tot += v; return '<td class="text-end">' + (v ? comma(mw(v)) : '-') + '</td>'; }).join('');
+    return '<tr><td class="fw-bold" style="color:' + col + '">' + esc(lab) + '</td>' + tds + '<td class="text-end fw-bold">' + comma(mw(tot)) + '</td></tr>';
+  }).join('');
+  $('ov-month-table').innerHTML = '<div style="overflow-x:auto"><table class="table table-sm mb-0" style="font-size:12px;min-width:760px">'
+    + '<thead><tr><th>구분</th>' + labels.map(l => '<th class="text-end">' + l + '</th>').join('') + '<th class="text-end">합계</th></tr></thead>'
+    + '<tbody>' + rowsHtml + '</tbody></table></div>'
+    + '<div style="font-size:11px;color:#94a3b8;margin-top:6px">단위 백만원 · 계약완료 딜의 예상 수주일 기준</div>';
+
+  /* 장비 / 소모품 상세 */
+  const detail = cat => {
+    const acc = {};
+    WON_DEALS().forEach(d => {
+      if (!inRange(d.expectedDate, y + '-' + pad(a) + '-01', ymd(new Date(y, b, 0)))) return;
+      if (CAT2(d.productCode) !== cat) return;
+      const k = d.productCode || d.product;
+      if (!acc[k]) acc[k] = { name: d.product, cnt: 0, amt: 0 };
+      acc[k].cnt++; acc[k].amt += num(d.amount);
+    });
+    const list = Object.keys(acc).map(k => Object.assign({ code: k }, acc[k])).sort((x, z) => z.amt - x.amt);
+    const tot = list.reduce((s, x) => s + x.amt, 0);
+    if (!list.length) return '<div style="color:#94a3b8;font-size:12.5px;padding:18px 0;text-align:center">해당 기간 수주 없음</div>';
+    return '<table class="table table-sm mb-0" style="font-size:12px">'
+      + '<thead><tr><th>제품</th><th class="text-center">건</th><th class="text-end">금액</th><th class="text-end">비중</th></tr></thead><tbody>'
+      + list.map(x => '<tr><td>' + esc(x.name) + '</td><td class="text-center">' + x.cnt + '</td>'
+        + '<td class="text-end fw-bold">' + comma(x.amt) + '</td>'
+        + '<td class="text-end" style="color:#64748b">' + (tot ? Math.round(x.amt / tot * 100) : 0) + '%</td></tr>').join('')
+      + '</tbody><tfoot><tr style="background:#fafbfc"><td class="fw-bold">합계</td>'
+      + '<td class="text-center fw-bold">' + list.reduce((s, x) => s + x.cnt, 0) + '</td>'
+      + '<td class="text-end fw-bold">' + comma(tot) + '</td><td class="text-end">100%</td></tr></tfoot></table>';
+  };
+  $('ov-dev-prods').innerHTML = detail('장비');
+  $('ov-cons-prods').innerHTML = detail('소모품');
+}
+
+/* ── 장비·소모품 매출 ── */
+let MIX_CAT = 'all';
+function mixTab(c, el) {
+  MIX_CAT = c;
+  document.querySelectorAll('#page-mix .wt-tab').forEach(x => x.classList.remove('on'));
+  if (el) el.classList.add('on');
+  renderMix();
+}
+function rSumProduct(year, a, b, code) {
+  const from = year + '-' + pad(a) + '-01', to = ymd(new Date(year, b, 0));
+  return WON_DEALS().filter(d => (d.productCode || d.product) === code && inRange(d.expectedDate, from, to))
+    .reduce((s, d) => s + num(d.amount), 0);
+}
+function renderMix() {
+  const [y, a, b] = periodOf('mix');
+  const from = y + '-' + pad(a) + '-01', to = ymd(new Date(y, b, 0));
+  $('mix-desc').textContent = y + '년 ' + a + '월 ~ ' + b + '월' + (MIX_CAT === 'all' ? '' : ' · ' + MIX_CAT);
+  const catF = MIX_CAT === 'all' ? null : MIX_CAT;
+
+  const cur = rSum(y, a, b, catF), pv = rSum(y - 1, a, b, catF);
+  const devA = rSum(y, a, b, '장비'), consA = rSum(y, a, b, '소모품');
+  const cnt = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || CAT2(d.productCode) === catF)).length;
+  const denom = (devA + consA) || 1;
+
+  const fact = (lab, v, sub) => '<div class="cdud-fact"><span>' + lab + '</span><b>' + v + '</b><i>' + sub + '</i></div>';
+  $('mix-kpi').innerHTML = '<div class="cdud" style="padding:18px 22px;margin:0">'
+    + '<div class="cdud-kpis" style="border-bottom:0;padding-bottom:6px">'
+    + '<div class="cdud-hero" style="cursor:default"><span class="l">' + (MIX_CAT === 'all' ? '전체' : MIX_CAT) + ' 수주액</span>'
+    + '<b>' + money(cur) + '</b><span class="s">전년 동기간 ' + money(pv) + ' ' + badgeYoy(cur, pv) + ' · ' + cnt + '건</span></div>'
+    + fact('장비', money(devA), Math.round(devA / denom * 100) + '% 비중')
+    + fact('소모품', money(consA), Math.round(consA / denom * 100) + '% 비중')
+    + fact('건당 평균', money(cnt ? cur / cnt : 0), '평균 수주 규모')
+    + fact('설치 장비', DB.equipments.length + '대', new Set(DB.equipments.map(e => e.custId)).size + '개 고객사')
+    + '</div></div>';
+
+  /* 제품별 집계 */
+  const acc = {};
+  WON_DEALS().forEach(d => {
+    if (!inRange(d.expectedDate, from, to)) return;
+    if (catF && CAT2(d.productCode) !== catF) return;
+    const k = d.productCode || d.product;
+    if (!acc[k]) acc[k] = { name: d.product, cat: CAT2(d.productCode), cnt: 0, amt: 0, custs: {} };
+    acc[k].cnt++; acc[k].amt += num(d.amount); acc[k].custs[d.custId] = 1;
+  });
+  const list = Object.keys(acc).map(k => Object.assign({ code: k }, acc[k])).sort((x, z) => z.amt - x.amt);
+  const tot = list.reduce((s, x) => s + x.amt, 0);
+  const top = list.slice(0, 10);
+
+  chart('mix-chart', {
+    type: 'bar',
+    data: { labels: top.map(x => x.name.replace(/^UL-[^\s]+\s*/, '').slice(0, 16)),
+      datasets: [{ label: '수주액', data: top.map(x => mw(x.amt)),
+        backgroundColor: top.map(x => x.cat === '장비' ? '#16a34a' : '#0e7490'), borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => comma(c.parsed.y) + '백만원' } } },
+      scales: { y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: '#f1f5f9' } },
+        x: { ticks: { font: { size: 10 }, maxRotation: 40 }, grid: { display: false } } } }
+  });
+
+  $('mix-table').innerHTML = list.length ? '<div style="overflow-x:auto"><table class="table table-hover mb-0">'
+    + '<thead><tr><th>제품</th><th>분류</th><th class="text-center">건수</th><th class="text-center">고객사</th>'
+    + '<th class="text-end">수주액</th><th class="text-end">비중</th><th class="text-end">건당 평균</th><th class="text-end">전년 동기간</th></tr></thead><tbody>'
+    + list.map(x => {
+        const p = rSumProduct(y - 1, a, b, x.code);
+        const cc = x.cat === '장비' ? '#16a34a' : '#0e7490';
+        return '<tr><td class="fw-bold">' + esc(x.name) + '</td>'
+          + '<td><span class="badge" style="background:' + cc + '1a;color:' + cc + '">' + esc(x.cat) + '</span></td>'
+          + '<td class="text-center">' + x.cnt + '</td><td class="text-center">' + Object.keys(x.custs).length + '</td>'
+          + '<td class="text-end fw-bold">' + comma(x.amt) + '</td>'
+          + '<td class="text-end" style="color:#64748b">' + (tot ? Math.round(x.amt / tot * 100) : 0) + '%</td>'
+          + '<td class="text-end">' + comma(Math.round(x.amt / x.cnt)) + '</td>'
+          + '<td class="text-end">' + comma(p) + ' ' + badgeYoy(x.amt, p) + '</td></tr>';
+      }).join('')
+    + '</tbody><tfoot><tr style="background:#fafbfc"><td class="fw-bold">합계</td><td></td>'
+    + '<td class="text-center fw-bold">' + list.reduce((s, x) => s + x.cnt, 0) + '</td><td></td>'
+    + '<td class="text-end fw-bold">' + comma(tot) + '</td><td class="text-end">100%</td><td></td><td></td></tr></tfoot></table></div>'
+    : '<div class="table-empty">해당 기간 수주가 없습니다</div>';
 }
 
 /* ───────────────────────── 7. 수주관리 ───────────────────────── */

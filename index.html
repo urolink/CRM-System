@@ -58,10 +58,10 @@
   </div>
 
   <div class="nav-section">
-    <div class="nav-label">현황</div>
+    <div class="nav-label">매출현황</div>
     <ul class="list-unstyled mb-0">
-      <li><a class="nav-link active" data-page="overview" onclick="showPage('overview',this)"><i class="bi bi-bar-chart-line"></i>종합 현황</a></li>
-      <li><a class="nav-link" data-page="analysis" onclick="showPage('analysis',this)"><i class="bi bi-graph-up-arrow"></i>영업 분석</a></li>
+      <li><a class="nav-link active" data-page="overview" onclick="showPage('overview',this)"><i class="bi bi-bar-chart-line"></i>종합</a></li>
+      <li><a class="nav-link" data-page="mix" onclick="showPage('mix',this)"><i class="bi bi-box-seam"></i>장비·소모품 매출</a></li>
     </ul>
 
     <div class="nav-label mt-3">영업</div>
@@ -73,9 +73,10 @@
 
     <div class="nav-label mt-3">관리</div>
     <ul class="list-unstyled mb-0">
-      <li><a class="nav-link" data-page="customers" onclick="showPage('customers',this)"><i class="bi bi-hospital"></i>고객사<span class="nav-count" id="cnt-cust"></span></a></li>
-      <li><a class="nav-link" data-page="equipments" onclick="showPage('equipments',this)"><i class="bi bi-cpu"></i>장비·A/S<span class="nav-count" id="cnt-equip"></span></a></li>
-      <li><a class="nav-link" data-page="products" onclick="showPage('products',this)"><i class="bi bi-box-seam"></i>제품<span class="nav-count" id="cnt-prod"></span></a></li>
+      <li><a class="nav-link" data-page="dashboard" onclick="showPage('dashboard',this)"><i class="bi bi-grid-1x2"></i>현황판</a></li>
+      <li><a class="nav-link" data-page="customers" onclick="showPage('customers',this)"><i class="bi bi-hospital"></i>고객사·장비<span class="nav-count" id="cnt-cust"></span></a></li>
+      <li><a class="nav-link" data-page="products" onclick="showPage('products',this)"><i class="bi bi-tags"></i>제품<span class="nav-count" id="cnt-prod"></span></a></li>
+      <li><a class="nav-link" data-page="analysis" onclick="showPage('analysis',this)"><i class="bi bi-graph-up-arrow"></i>영업 분석</a></li>
       <li><a class="nav-link" data-page="settings" onclick="showPage('settings',this)"><i class="bi bi-gear"></i>설정·데이터</a></li>
     </ul>
   </div>
@@ -98,53 +99,125 @@
     <button class="btn btn-sm btn-outline-secondary" onclick="clearSample()">샘플 데이터 삭제</button>
   </div>
 
-  <!-- ────────── 종합 현황 ────────── -->
+  <!-- ────────── 종합 (매출현황) ────────── -->
   <div id="page-overview" class="page active">
-    <div class="wt-mast">
+    <div class="page-header" style="border-bottom:2px solid #16324f;padding-bottom:14px;align-items:flex-end">
       <div>
-        <div class="kick">UROLINK SALES</div>
-        <div class="t"><i class="bi bi-bar-chart-line me-2"></i>종합 현황</div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#94a3b8">UROLINK · SALES OVERVIEW</div>
+        <h5 style="margin-top:4px;font-size:22px;font-weight:800;letter-spacing:-.01em"><i class="bi bi-bar-chart-line me-2" style="color:#0e7490"></i>장비·소모품 종합 수주현황</h5>
       </div>
+      <div style="font-size:12px;color:#64748b;text-align:right" id="ov-updated"></div>
+    </div>
+    <div class="period-bar">
+      <span class="pb-l">📅 조회 기간</span>
+      <select id="ov-year" class="form-select form-select-sm" style="width:92px" onchange="renderOverview()"></select>
+      <select id="ov-from" class="form-select form-select-sm" style="width:76px" onchange="renderOverview()"></select>
+      <span style="color:#94a3b8">~</span>
+      <select id="ov-to" class="form-select form-select-sm" style="width:76px" onchange="renderOverview()"></select>
+      <span id="ov-desc" style="font-size:12px;color:#64748b;font-weight:600"></span>
+    </div>
+
+    <!-- KPI 밴드 (당월 / 누계) -->
+    <div class="mb-3" id="ov-kpi"></div>
+
+    <!-- 월별 통합 차트 -->
+    <div class="card p-3 mb-3">
+      <div class="fw-bold mb-2" style="font-size:13px"><i class="bi bi-graph-up-arrow me-1" style="color:#374151"></i>월별 수주 추이
+        <span style="font-size:11px;font-weight:400;color:#64748b">막대=장비·소모품 · 점선=작년 합계 · 단위 백만원</span></div>
+      <div style="position:relative;height:220px"><canvas id="ov-chart-monthly"></canvas></div>
+      <div id="ov-month-table" class="mt-3"></div>
+    </div>
+
+    <!-- 장비 / 소모품 나란히 (장비 왼쪽) -->
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card p-3 h-100">
+          <div class="fw-bold mb-2" style="font-size:13px;color:#16a34a"><i class="bi bi-box-seam me-1"></i>장비 상세</div>
+          <div id="ov-dev-prods"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card p-3 h-100">
+          <div class="fw-bold mb-2" style="font-size:13px;color:#0e7490"><i class="bi bi-capsule me-1"></i>소모품 상세</div>
+          <div id="ov-cons-prods"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────── 장비·소모품 매출 ────────── -->
+  <div id="page-mix" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK SALES MIX</div><div class="t"><i class="bi bi-box-seam me-2"></i>장비·소모품 매출</div></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="wt-tab on" onclick="mixTab('all',this)"><i class="bi bi-layers"></i>전체</button>
+        <button class="wt-tab" onclick="mixTab('장비',this)"><i class="bi bi-box-seam"></i>장비</button>
+        <button class="wt-tab" onclick="mixTab('소모품',this)"><i class="bi bi-capsule"></i>소모품</button>
+      </div>
+    </div>
+    <div class="period-bar">
+      <span class="pb-l">📅 조회 기간</span>
+      <select id="mix-year" class="form-select form-select-sm" style="width:92px" onchange="renderMix()"></select>
+      <select id="mix-from" class="form-select form-select-sm" style="width:76px" onchange="renderMix()"></select>
+      <span style="color:#94a3b8">~</span>
+      <select id="mix-to" class="form-select form-select-sm" style="width:76px" onchange="renderMix()"></select>
+      <span id="mix-desc" style="font-size:12px;color:#64748b;font-weight:600"></span>
+    </div>
+    <div class="mb-3" id="mix-kpi"></div>
+    <div class="card p-3 mb-3">
+      <div class="fw-bold mb-2" style="font-size:13px"><i class="bi bi-bar-chart me-1" style="color:#374151"></i>제품별 수주 <span style="font-size:11px;font-weight:400;color:#64748b">단위 백만원</span></div>
+      <div style="position:relative;height:240px"><canvas id="mix-chart"></canvas></div>
+    </div>
+    <div class="card p-0">
+      <div class="p-3 border-bottom fw-bold" style="font-size:13px">제품별 상세</div>
+      <div id="mix-table"></div>
+    </div>
+  </div>
+
+  <!-- ────────── 현황판 ────────── -->
+  <div id="page-dashboard" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK DASHBOARD</div><div class="t"><i class="bi bi-grid-1x2 me-2"></i>현황판</div></div>
       <div class="d-flex gap-2 align-items-center flex-wrap">
-        <div class="d-flex gap-1" id="ov-period-btns">
-          <button class="dash-period-btn" onclick="setOvPeriod('month',this)">이번달</button>
-          <button class="dash-period-btn" onclick="setOvPeriod('quarter',this)">이번분기</button>
-          <button class="dash-period-btn on" onclick="setOvPeriod('year',this)">올해</button>
+        <div class="d-flex gap-1" id="db-period-btns">
+          <button class="dash-period-btn" onclick="setDbPeriod('month',this)">이번달</button>
+          <button class="dash-period-btn" onclick="setDbPeriod('quarter',this)">이번분기</button>
+          <button class="dash-period-btn on" onclick="setDbPeriod('year',this)">올해</button>
         </div>
         <button class="btn btn-primary btn-sm" onclick="openDealModal()"><i class="bi bi-plus-lg me-1"></i>딜 추가</button>
       </div>
     </div>
 
-    <div class="wt-band" id="ov-band"></div>
+    <div class="wt-band" id="db-band"></div>
 
     <div class="row g-3 mb-3">
       <div class="col-lg-8">
         <div class="card p-3 h-100">
           <div class="wt-st">월별 수주 실적 <span style="font-size:11px;font-weight:500;color:#94a3b8">· 계약완료 기준, 최근 12개월</span></div>
-          <div style="position:relative;height:230px"><canvas id="chart-ov-month"></canvas></div>
+          <div style="position:relative;height:230px"><canvas id="chart-db-month"></canvas></div>
         </div>
       </div>
       <div class="col-lg-4">
         <div class="card p-3 h-100">
           <div class="wt-st">파이프라인 단계</div>
-          <div id="ov-funnel"></div>
-          <div id="ov-funnel-sum" class="mt-2 pt-2" style="border-top:1px solid #f3f4f6"></div>
+          <div id="db-funnel"></div>
+          <div id="db-funnel-sum" class="mt-2 pt-2" style="border-top:1px solid #f3f4f6"></div>
         </div>
       </div>
     </div>
 
     <div class="card p-3 mb-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <div class="wt-st mb-0" style="border:0;padding:0">매출 전망 <span id="ov-fc-label" style="font-size:11px;font-weight:500;color:#64748b"></span></div>
-        <span id="ov-fc-total" style="font-size:14px;font-weight:800;color:var(--blue)"></span>
+        <div class="wt-st mb-0" style="border:0;padding:0">매출 전망 <span id="db-fc-label" style="font-size:11px;font-weight:500;color:#64748b"></span></div>
+        <span id="db-fc-total" style="font-size:14px;font-weight:800;color:var(--blue)"></span>
       </div>
       <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#f1f5f9">
-        <div id="ov-bar-won" style="height:100%;background:#16a34a;transition:width .5s"></div>
-        <div id="ov-bar-exp" style="height:100%;background:#7dd3fc;transition:width .5s"></div>
+        <div id="db-bar-won" style="height:100%;background:#16a34a;transition:width .5s"></div>
+        <div id="db-bar-exp" style="height:100%;background:#7dd3fc;transition:width .5s"></div>
       </div>
       <div class="d-flex gap-4 mt-2" style="font-size:11.5px">
-        <span><span style="display:inline-block;width:8px;height:8px;background:#16a34a;border-radius:2px;margin-right:4px"></span>확정(계약완료) <strong id="ov-bar-won-v"></strong></span>
-        <span><span style="display:inline-block;width:8px;height:8px;background:#7dd3fc;border-radius:2px;margin-right:4px"></span>확률가중 예상 <strong id="ov-bar-exp-v"></strong></span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:#16a34a;border-radius:2px;margin-right:4px"></span>확정(계약완료) <strong id="db-bar-won-v"></strong></span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:#7dd3fc;border-radius:2px;margin-right:4px"></span>확률가중 예상 <strong id="db-bar-exp-v"></strong></span>
       </div>
     </div>
 
@@ -155,18 +228,18 @@
             <div class="fw-bold" style="font-size:14px"><i class="bi bi-bell-fill me-2" style="color:#ea580c"></i>다음 액션
               <span style="font-size:11px;font-weight:400;color:#94a3b8">· 행 클릭 시 상세</span></div>
             <div class="d-flex gap-2">
-              <span class="badge" style="background:#fef2f2;color:#dc2626;font-size:11px" id="ov-act-od"></span>
-              <span class="badge" style="background:#fff7ed;color:#ea580c;font-size:11px" id="ov-act-td"></span>
-              <span class="badge" style="background:#ecfeff;color:#0e7490;font-size:11px" id="ov-act-wk"></span>
+              <span class="badge" style="background:#fef2f2;color:#dc2626;font-size:11px" id="db-act-od"></span>
+              <span class="badge" style="background:#fff7ed;color:#ea580c;font-size:11px" id="db-act-td"></span>
+              <span class="badge" style="background:#ecfeff;color:#0e7490;font-size:11px" id="db-act-wk"></span>
             </div>
           </div>
-          <div id="ov-action-board" style="max-height:320px;overflow-y:auto"></div>
+          <div id="db-action-board" style="max-height:320px;overflow-y:auto"></div>
         </div>
       </div>
       <div class="col-lg-5">
         <div class="card p-0 h-100">
           <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-shield-exclamation me-2" style="color:#dc2626"></i>관리 필요</div>
-          <div id="ov-alerts" class="p-3" style="max-height:320px;overflow-y:auto"></div>
+          <div id="db-alerts" class="p-3" style="max-height:320px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -307,6 +380,10 @@
         <button class="btn btn-primary btn-sm" onclick="openCustModal()"><i class="bi bi-plus-lg me-1"></i>고객사 추가</button>
       </div>
     </div>
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+      <button class="wt-tab on" onclick="showPage('customers')"><i class="bi bi-hospital"></i>고객사</button>
+      <button class="wt-tab" onclick="showPage('equipments')"><i class="bi bi-cpu"></i>장비 · A/S</button>
+    </div>
     <div class="wt-band" id="cust-band"></div>
     <div class="d-flex gap-2 mb-2 flex-wrap">
       <input type="text" id="c-search" class="form-control form-control-sm" style="max-width:260px" placeholder="고객사명, 원장명, 지역, 담당자, 태그..." oninput="renderCustomers()">
@@ -331,6 +408,10 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="exportEquip()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
         <button class="btn btn-primary btn-sm" onclick="openEquipModal()"><i class="bi bi-plus-lg me-1"></i>장비 등록</button>
       </div>
+    </div>
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+      <button class="wt-tab" onclick="showPage('customers')"><i class="bi bi-hospital"></i>고객사</button>
+      <button class="wt-tab on" onclick="showPage('equipments')"><i class="bi bi-cpu"></i>장비 · A/S</button>
     </div>
     <div class="wt-band" id="equip-band"></div>
     <div class="d-flex gap-2 mb-2 flex-wrap">
