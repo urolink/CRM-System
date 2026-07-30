@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730b';
+const APP_VERSION = '20260730c';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -447,6 +447,11 @@ let CUR_PAGE = 'overview';
 
 function showPage(page, el) {
   if (!PAGES.includes(page)) page = 'overview';
+  /* 사용자 관리는 관리자 전용 — 주소창(#settings)으로 직접 들어오는 경우까지 차단 */
+  if (page === 'settings' && !isAdmin()) {
+    page = 'overview';
+    toast('사용자 관리는 관리자만 접근할 수 있습니다');
+  }
   CUR_PAGE = page;
   PAGES.forEach(p => $('page-' + p).classList.toggle('active', p === page));
   const navKey = NAV_OF[page] || page;
@@ -2784,6 +2789,8 @@ document.addEventListener('click', e => {
   p.classList.remove('on');
 });
 function startApp() {
+  const ns = $('nav-settings');
+  if (ns) ns.style.display = isAdmin() ? '' : 'none';   /* 관리자에게만 메뉴 노출 */
   renderAccountBox();
   refreshSelects();
   refreshCounts();
