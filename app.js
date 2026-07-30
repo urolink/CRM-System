@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730q';
+const APP_VERSION = '20260730r';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -1869,6 +1869,98 @@ function renderGradeChips() {
 function pickGrade(v) { S_GRADE = (S_GRADE === v ? 0 : v); renderGradeChips(); }
 function gradeLabel(v) { const g = SCH_GRADES.find(x => x.v === num(v)); return g ? g.l : ''; }
 
+/* ── 일정 모달 안의 병원(고객사) 상세 요약 ──
+   resolveCust 는 없는 이름이면 새로 만들어버리므로 여기서는 절대 쓰지 않는다.
+   조회 전용 findCust 로 정확히 일치하는 고객사만 찾는다. */
+const findCust = v => {
+  const nm = trimv(v);
+  if (!nm) return null;
+  return DB.customers.find(x => x.name === nm) || DB.customers.find(x => x.id === nm) || null;
+};
+let SCI_OPEN = true;
+function toggleSchCust() { SCI_OPEN = !SCI_OPEN; schCustPeek(); }
+function schCustPeek() {
+  const box = $('s-cust-info'), btn = $('s-cust-toggle');
+  if (!box) return;
+  const c = findCust($('s-cust').value);
+  if (!c) { box.style.display = 'none'; box.innerHTML = ''; if (btn) btn.style.display = 'none'; return; }
+  if (btn) {
+    btn.style.display = 'inline-block';
+    btn.innerHTML = '<i class="bi bi-hospital me-1"></i>' + (SCI_OPEN ? '정보 접기' : '병원 정보');
+  }
+  if (!SCI_OPEN) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = schCustInfo(c);
+}
+function schCustInfo(c) {
+  const id = c.id;
+  const deals = DB.deals.filter(d => d.custId === id);
+  const openD = deals.filter(d => OPEN_STAGES.includes(d.stage));
+  const eqs = DB.equipments.filter(e => e.custId === id);
+  const logs = DB.logs.filter(l => l.custId === id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const last = logs.length ? logs[0].date : '';
+  const addr = ((c.addr || '') + ' ' + (c.addr2 || '')).trim();
+  const cts = c.contacts || [];
+
+  const kpi = (l, v, sub, cls) =>
+    '<div class="sci-k"><span>' + l + '</span><b' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</b>'
+    + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+  const line = (l, v) => v ? '<div class="sci-r"><span>' + l + '</span><b>' + esc(v) + '</b></div>' : '';
+
+  return '<div class="sci-head">'
+      + '<b>' + esc(c.name) + '</b>'
+      + '<span class="grade-badge grade-' + esc(c.grade) + '">' + esc(c.grade) + '</span>'
+      + '<button type="button" class="btn btn-link p-0 ms-auto" onclick="schGoCustDetail()"'
+      + ' style="font-size:11px;font-weight:700;text-decoration:none">전체 상세 <i class="bi bi-arrow-right-short"></i></button>'
+    + '</div>'
+    + '<div class="sci-kpis">'
+      + kpi('누적 수주', money(custWonAmount(id)) + '원', '계약 ' + deals.filter(d => d.stage === '계약완료').length + '건')
+      + kpi('진행 딜', openD.length + '건', money(openD.reduce((t, d) => t + num(d.amount), 0)) + '원')
+      + kpi('보유 장비', eqs.length + '대', 'A/S ' + eqs.reduce((t, e) => t + (e.as || []).length, 0) + '회')
+      + kpi('최근 접촉', last ? (-dDays(last)) + '일 전' : '없음', last ? fmtDate(last) : '상담일지 없음',
+            (!last || -dDays(last) > 60) ? 'rd' : '')
+    + '</div>'
+    + '<div class="sci-rows">'
+      + line('구분', [c.type, c.dept].filter(x => trimv(x)).join(' · '))
+      + line('원장/담당', c.doctor)
+      + line('담당영업', c.rep)
+      + line('대표 전화', c.phone)
+      + line('지역', ((c.sido || '') + ' ' + (c.gugun || '')).trim())
+      + line('주소', addr)
+    + '</div>'
+    + (cts.length ? '<div class="sci-sub">연락처 ' + cts.length + '명</div>'
+        + '<div class="sci-cts">' + cts.slice(0, 4).map(x =>
+            '<div class="sci-ct"><span class="ct-role">' + esc(x.role || '기타') + '</span>'
+            + '<b>' + esc(x.name || '-') + '</b>'
+            + (x.phone ? '<span>' + esc(x.phone) + '</span>' : '') + '</div>').join('')
+        + (cts.length > 4 ? '<div class="sci-more">외 ' + (cts.length - 4) + '명 · 전체 상세에서 확인</div>' : '')
+        + '</div>' : '')
+    + (openD.length ? '<div class="sci-sub">진행 중 딜 ' + openD.length + '건</div>'
+        + '<div class="sci-cts">' + openD.slice(0, 3).map(d =>
+            '<div class="sci-ct"><span class="badge" style="background:' + stageOf(d.stage).color + '1a;color:'
+            + stageOf(d.stage).color + '">' + esc(d.stage) + '</span>'
+            + '<b>' + esc(d.product) + '</b><span>' + comma(d.amount) + '원</span></div>').join('')
+        + '</div>' : '')
+    + (logs.length ? '<div class="sci-sub">최근 상담 ' + Math.min(3, logs.length) + '건</div>'
+        + '<div class="sci-logs">' + logs.slice(0, 3).map(l =>
+            '<div class="sci-log"><em>' + fmtDate(l.date) + '</em>'
+            + '<span class="sci-lt">' + esc(l.type || '기타') + '</span>'
+            + '<span class="sci-lc">' + esc(l.content || '') + '</span></div>').join('')
+        + '</div>'
+      : '<div class="sci-empty">상담 이력이 없습니다 — 이번 결과가 첫 기록이 됩니다</div>')
+    + (trimv(c.memo) ? '<div class="sci-memo"><b>메모</b> ' + esc(c.memo) + '</div>' : '');
+}
+/* 전체 상세로 이동: 작성 중 내용이 있으면 먼저 확인 */
+function schGoCustDetail() {
+  const c = findCust($('s-cust').value);
+  if (!c) return;
+  const dirty = trimv($('s-title').value) || trimv($('s-result').value) || trimv($('s-next').value) || S_GRADE;
+  if (dirty && !confirm('저장하지 않은 입력 내용이 있습니다. 고객사 상세로 이동하면 사라집니다. 이동할까요?')) return;
+  const m = bootstrap.Modal.getInstance($('schModal'));
+  if (m) m.hide();
+  setTimeout(() => openCustDetail(c.id), 200);
+}
+
 function openSchModal(id, preDate) {
   refreshSelects();
   const s = id ? DB.schedules.find(x => x.id === id) : null;
@@ -1899,6 +1991,8 @@ function openSchModal(id, preDate) {
     else if (s.date < today()) chip.innerHTML = '<span class="st-chip miss">결과 미입력</span>';
     else chip.innerHTML = '<span class="st-chip plan">예정</span>';
   }
+  SCI_OPEN = true;
+  schCustPeek();
   new bootstrap.Modal($('schModal')).show();
 }
 function saveSch() {

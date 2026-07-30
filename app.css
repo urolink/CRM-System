@@ -22,10 +22,8 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .sidebar{width:220px;background:var(--sidebar-bg);min-height:100vh;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100;overflow-y:auto;display:flex;flex-direction:column;border-right:1px solid #d8e0ea;box-shadow:3px 0 16px rgba(16,42,67,.06)}
 .main{flex:1;margin-left:220px;padding:28px 32px 104px;overflow-y:auto;min-height:100vh}
 .sidebar-brand{padding:22px 20px 16px;color:#1c2534;display:flex;align-items:center;gap:10px;border-bottom:1px solid #e4e8ef}
-/* ── CI 워드마크 (Uro=다크네이비 / LinK=라이트블루, 십자 모티프) ── */
-.brand-icon{width:32px;height:32px;background:var(--ci-dark);border-radius:9px;display:flex;align-items:center;
-  justify-content:center;font-size:16px;flex-shrink:0;color:#fff;font-weight:800}
-.brand-name{font-size:18px;font-weight:800;letter-spacing:-.5px;line-height:1.1}
+/* ── CI 워드마크 (Uro=다크네이비 / LinK=라이트블루) ── */
+.brand-name{font-size:21px;font-weight:800;letter-spacing:-.6px;line-height:1.1}
 .wm-a{color:var(--ci-dark)}
 .wm-b{color:var(--ci-blue)}
 .brand-sub{font-size:10.5px;color:#94a3b8;margin-top:1px;letter-spacing:.02em}
@@ -65,6 +63,40 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
   .wt-fact{border-left:0!important;padding:0}
   .wt-hero>b{font-size:29px}
 }
+
+/* ── 일정 모달: 병원(고객사) 상세 요약 패널 ── */
+.sci{margin-top:8px;border:1px solid var(--border);border-radius:10px;background:#fafbfc;
+  padding:10px 12px;max-height:330px;overflow-y:auto}
+.sci-head{display:flex;align-items:center;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.sci-head>b{font-size:13.5px;font-weight:800;color:#182230;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sci-kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:9px}
+.sci-k{min-width:0}
+.sci-k span{display:block;font-size:10.5px;font-weight:700;color:var(--text-2)}
+.sci-k b{display:block;font-size:14px;font-weight:800;color:#182230;font-variant-numeric:tabular-nums;
+  line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sci-k b.rd{color:var(--red)}
+.sci-k i{display:block;font-style:normal;font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sci-rows{border-top:1px solid var(--border);padding-top:7px}
+.sci-r{display:flex;gap:8px;font-size:12px;line-height:1.65}
+.sci-r span{width:58px;flex-shrink:0;font-weight:700;color:var(--text-2)}
+.sci-r b{font-weight:600;color:#334155;min-width:0;word-break:break-word}
+.sci-sub{font-size:11px;font-weight:800;color:#64748b;margin:9px 0 4px;padding-top:7px;border-top:1px solid var(--border)}
+.sci-cts{display:flex;flex-direction:column;gap:3px}
+.sci-ct{display:flex;align-items:center;gap:6px;font-size:11.5px;background:#fff;border:1px solid var(--border);
+  border-radius:6px;padding:4px 7px}
+.sci-ct b{font-weight:700;color:#182230;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sci-ct>span:not(.ct-role):not(.badge){color:#64748b;margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sci-ct .badge{font-size:9.5px;font-weight:700;flex-shrink:0}
+.sci-more{font-size:10.5px;color:#94a3b8;padding-left:2px}
+.sci-logs{display:flex;flex-direction:column;gap:4px}
+.sci-log{font-size:11.5px;line-height:1.5;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 7px}
+.sci-log em{font-style:normal;font-weight:800;color:#182230;margin-right:5px;font-variant-numeric:tabular-nums}
+.sci-lt{font-size:9.5px;font-weight:700;color:#0e7490;background:var(--blue-light);border-radius:4px;padding:1px 5px;margin-right:5px}
+.sci-lc{color:#475569;display:block;margin-top:2px;word-break:break-word}
+.sci-empty{font-size:11.5px;color:#94a3b8;padding:7px 0 2px;border-top:1px solid var(--border);margin-top:8px}
+.sci-memo{font-size:11.5px;color:#475569;background:#fff;border:1px solid var(--border);border-radius:6px;
+  padding:5px 7px;margin-top:7px;white-space:pre-wrap;word-break:break-word}
+.sci-memo b{font-weight:800;color:#64748b;margin-right:4px}
 
 /* ══ 문서형 KPI 밴드 (원텍 한국영업 .cdud 이식) ══ */
 .cdud{--ink:#182230;--mut:#64748b;--line:#e4e8ef;--navy:#16324f;--acc:#0e7490;--rd:#dc2626;--grn:#15803d;
