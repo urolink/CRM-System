@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730t';
+const APP_VERSION = '20260730u';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4558,45 +4558,93 @@ function paintUsers() {
   /* 부서별 그룹 */
   const grps = [];
   rows.forEach(u => { const d = u.dept || '미지정'; if (!grps.includes(d)) grps.push(d); });
+  /* 사람이 늘어날 화면이므로 한 사람 = 한 줄로 고정한다.
+     이메일을 이름 아래 두 번째 줄로 깔면 인원수만큼 세로가 두 배로 늘어난다.
+     그룹 헤더도 얇은 띠로 줄이고, 버튼은 아이콘만 남긴다. */
   const body = grps.map(g => {
     const list = rows.filter(u => (u.dept || '미지정') === g);
-    return '<tr class="u-grp"><td colspan="6"><i class="bi bi-building me-1"></i>' + esc(g)
-      + '<span class="cnt">' + list.length + '명</span></td></tr>'
+    return '<tr class="u-grp"><td colspan="7"><i class="bi bi-building"></i>' + esc(g)
+      + '<span class="cnt">' + list.length + '</span></td></tr>'
       + list.map(u => {
         const me = u.id === (ME && ME.id);
         const off = u.active === false;
-        return '<tr>'
-          + '<td><div class="d-flex align-items-center gap-1">'
-            + '<input type="text" class="form-control form-control-sm" style="max-width:120px;font-weight:700"'
-            + ' value="' + esc(u.display_name || '') + '" placeholder="이름"'
-            + ' onchange="setUserField(\'' + esc(u.id) + '\',\'display_name\',this.value)">'
+        const uid = esc(u.id);
+        return '<tr' + (off ? ' class="u-off"' : '') + '>'
+          + '<td><div class="u-name">'
+            + '<input type="text" class="u-in nm" value="' + esc(u.display_name || '') + '" placeholder="이름"'
+            + ' onchange="setUserField(&#39;' + uid + '&#39;,&#39;display_name&#39;,this.value)">'
             + (me ? '<span class="u-badge usr">나</span>' : '')
-            + (off ? '<span class="u-badge off">비활성</span>' : '') + '</div>'
-            + '<div style="font-size:11.5px;color:#64748b;margin-top:2px">' + esc(u.email || '') + '</div></td>'
-          + '<td><input type="text" class="form-control form-control-sm" style="max-width:130px" value="' + esc(u.dept || '')
-            + '" placeholder="부서" onchange="setUserField(\'' + esc(u.id) + '\',\'dept\',this.value)"></td>'
-          + '<td><input type="text" class="form-control form-control-sm" style="max-width:110px" value="' + esc(u.position || '')
-            + '" placeholder="직급" onchange="setUserField(\'' + esc(u.id) + '\',\'position\',this.value)"></td>'
-          + '<td><select class="form-select form-select-sm" style="max-width:150px"'
+            + (off ? '<span class="u-badge off">비활성</span>' : '') + '</div></td>'
+          + '<td><input type="email" class="u-in em" value="' + esc(u.email || '') + '" placeholder="이메일"'
+            + ' autocomplete="off" onchange="setUserEmail(&#39;' + uid + '&#39;,this.value,this)"'
+            + ' title="로그인 아이디입니다. 바꾸면 새 주소로 로그인해야 합니다."></td>'
+          + '<td><input type="text" class="u-in" list="dl-dept" value="' + esc(u.dept || '') + '" placeholder="부서"'
+            + ' onchange="setUserField(&#39;' + uid + '&#39;,&#39;dept&#39;,this.value)"></td>'
+          + '<td><input type="text" class="u-in sm" list="dl-pos" value="' + esc(u.position || '') + '" placeholder="직급"'
+            + ' onchange="setUserField(&#39;' + uid + '&#39;,&#39;position&#39;,this.value)"></td>'
+          + '<td><select class="u-in sel' + (u.role === 'admin' ? ' adm' : '') + '"'
             + (me ? ' disabled title="본인 역할은 바꿀 수 없습니다"' : '')
-            + ' onchange="setUserRole(\'' + esc(u.id) + '\',this.value)">'
+            + ' onchange="setUserRole(&#39;' + uid + '&#39;,this.value)">'
             + '<option value="user"' + (u.role === 'user' ? ' selected' : '') + '>일반</option>'
             + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자</option></select></td>'
-          + '<td style="font-size:11.5px;color:#64748b">' + fmtDate(u.created_at) + '</td>'
-          + '<td class="text-end" style="white-space:nowrap">'
-            + (me ? '' : '<button class="btn btn-sm btn-outline-secondary" onclick="openSetPw(\'' + esc(u.id) + '\')" title="비밀번호를 직접 변경"><i class="bi bi-key"></i> 비번 설정</button>')
-            + (me ? '' : ' <button class="btn btn-sm ' + (off ? 'btn-outline-success' : 'btn-outline-secondary')
-                + '" onclick="setUserActive(\'' + esc(u.id) + '\',' + (off ? 'true' : 'false') + ')">'
-                + (off ? '<i class="bi bi-arrow-counterclockwise"></i> 복구' : '<i class="bi bi-slash-circle"></i> 차단') + '</button>')
-            + (me ? '<span style="font-size:11.5px;color:#94a3b8">본인</span>'
-                  : ' <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(\'' + esc(u.id) + '\')" title="계정 완전 삭제"><i class="bi bi-trash"></i> 삭제</button>')
+          + '<td class="u-date">' + fmtDate(u.created_at) + '</td>'
+          + '<td class="u-act">'
+            + (me ? '<span class="u-self">본인</span>'
+                  : '<button class="u-ib" onclick="openSetPw(&#39;' + uid + '&#39;)" title="비밀번호 직접 변경">'
+                    + '<i class="bi bi-key"></i></button>'
+                  + '<button class="u-ib' + (off ? ' gr' : '') + '" onclick="setUserActive(&#39;' + uid + '&#39;,'
+                    + (off ? 'true' : 'false') + ')" title="' + (off ? '접속 복구' : '접속 차단') + '">'
+                    + '<i class="bi ' + (off ? 'bi-arrow-counterclockwise' : 'bi-slash-circle') + '"></i></button>'
+                  + '<button class="u-ib rd" onclick="deleteUser(&#39;' + uid + '&#39;)" title="계정 완전 삭제">'
+                    + '<i class="bi bi-trash"></i></button>')
           + '</td></tr>';
       }).join('');
   }).join('');
-  $('user-list').innerHTML = '<div style="overflow-x:auto"><table class="table table-hover mb-0">'
-    + '<thead><tr><th>이름 · 이메일</th><th>부서</th><th>직급</th><th>역할</th><th>가입일</th><th></th></tr></thead>'
+  $('user-list').innerHTML = '<div style="overflow-x:auto"><table class="table u-t mb-0">'
+    + '<thead><tr><th>이름</th><th>이메일 (로그인 ID)</th><th>부서</th><th>직급</th>'
+    + '<th>역할</th><th>가입일</th><th></th></tr></thead>'
     + '<tbody>' + body + '</tbody></table></div>';
 }
+/* 이메일은 Supabase 로그인 아이디다.
+   ul_profiles 만 고치면 화면엔 새 주소가 보이는데 실제 로그인은 옛 주소로만 되는
+   어긋난 상태가 된다. 그래서 auth 계정까지 함께 바꾸는 Edge Function 을 거친다. */
+async function setUserEmail(id, v, el) {
+  const u = U_ROWS.find(x => x.id === id);
+  if (!u) return;
+  const next = trimv(v).toLowerCase();
+  const prev = trimv(u.email).toLowerCase();
+  if (next === prev) return;
+  const revert = () => { if (el) el.value = u.email || ''; };
+  if (!next) { toast('이메일은 비울 수 없습니다'); revert(); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) { toast('이메일 형식이 올바르지 않습니다'); revert(); return; }
+  if (U_ROWS.some(x => x.id !== id && trimv(x.email).toLowerCase() === next)) {
+    toast('이미 사용 중인 이메일입니다'); revert(); return;
+  }
+  const mine = ME && ME.id === id;
+  if (!confirm((u.display_name || prev) + ' 님의 로그인 아이디를 바꿉니다.' + NL + NL
+    + prev + NL + '  ↓' + NL + next + NL + NL
+    + '이제부터 새 주소로 로그인해야 합니다. 비밀번호는 그대로입니다.'
+    + (mine ? NL + NL + '⚠ 본인 계정입니다. 변경 후 다시 로그인해야 할 수 있습니다.' : '')
+    + NL + NL + '계속할까요?')) { revert(); return; }
+
+  if (el) el.disabled = true;
+  const { data, error } = await callAdminFn({ action: 'set_email', id: id, email: next });
+  if (el) el.disabled = false;
+  if (error) {
+    /* 아직 set_email 을 모르는(재배포 전) 함수면 원인을 정확히 알려준다 */
+    const msg = /알 수 없는 요청/.test(error)
+      ? '이메일 변경 기능이 서버에 아직 배포되지 않았습니다.' + NL
+        + 'Supabase → Edge Functions → admin-user 를 edge-admin-user.ts 로 다시 배포해주세요.'
+      : error;
+    alert('이메일 변경 실패' + NL + NL + msg);
+    revert();
+    return;
+  }
+  toast('로그인 아이디를 ' + next + ' 로 변경했습니다');
+  if (mine && ME) ME.email = next;
+  renderUsers();
+}
+
 async function setUserField(id, field, v) {
   const val = trimv(v);
   if (field === 'display_name' && !val) { toast('이름은 비울 수 없습니다'); renderUsers(); return; }

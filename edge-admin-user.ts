@@ -64,6 +64,51 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   }
 
+  // 이메일 = 로그인 아이디. auth 계정 · 프로필 · 허용목록을 한꺼번에 바꿔야
+  // "화면에는 새 주소인데 로그인은 옛 주소로만 되는" 어긋난 상태가 안 생긴다.
+  if (body.action === 'set_email') {
+    const id = String(body.id ?? '');
+    const email = String(body.email ?? '').trim().toLowerCase();
+    if (!id) return json({ error: '대상 사용자가 없습니다' }, 400);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return json({ error: '이메일 형식이 올바르지 않습니다' }, 400);
+    }
+
+    // 다른 계정이 쓰고 있는 주소인지 먼저 확인 (auth 쪽 오류 메시지가 불친절해서)
+    const { data: dup } = await admin
+      .from('ul_profiles').select('id').eq('email', email).neq('id', id).maybeSingle();
+    if (dup) return json({ error: '이미 다른 계정이 사용 중인 이메일입니다' }, 400);
+
+    const { data: before } = await admin
+      .from('ul_profiles').select('email').eq('id', id).maybeSingle();
+    const oldEmail = before?.email ?? null;
+
+    // 1) auth 계정. email_confirm 을 켜서 확인 메일 없이 바로 쓸 수 있게 한다
+    //    (관리자가 발급·관리하는 계정이므로 본인 확인 절차가 따로 있다)
+    const { error: aErr } = await admin.auth.admin.updateUserById(id, {
+      email,
+      email_confirm: true,
+    });
+    if (aErr) return json({ error: aErr.message }, 400);
+
+    // 2) 프로필. 여기서 실패하면 auth 와 어긋나므로 되돌린다
+    const { error: pErr } = await admin.from('ul_profiles').update({ email }).eq('id', id);
+    if (pErr) {
+      if (oldEmail) {
+        await admin.auth.admin.updateUserById(id, { email: oldEmail, email_confirm: true });
+      }
+      return json({ error: '프로필 저장에 실패해 이메일을 되돌렸습니다: ' + pErr.message }, 400);
+    }
+
+    // 3) 가입 허용목록도 새 주소로 옮긴다 (옛 주소가 남아 있으면 재가입 경로가 생긴다)
+    if (oldEmail && oldEmail !== email) {
+      await admin.from('ul_invites').delete().eq('email', oldEmail);
+    }
+    await admin.from('ul_invites').upsert({ email }, { onConflict: 'email' });
+
+    return json({ ok: true, email });
+  }
+
   if (body.action === 'delete_user') {
     const id = String(body.id ?? '');
     if (!id) return json({ error: '대상 사용자가 없습니다' }, 400);
