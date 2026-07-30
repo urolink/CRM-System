@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730v';
+const APP_VERSION = '20260730w';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -733,6 +733,12 @@ function renderDashboard() {
   const wgt = openD.reduce((s, d) => s + num(d.amount) * num(d.prob) / 100, 0);
   const closed = wonD.length + lostD.length;
   const winRate = closed ? Math.round(wonD.length / closed * 100) : 0;
+  const ym = today().slice(0, 7);
+  const dbDue = openD.filter(d => String(d.expectedDate).slice(0, 7) === ym);
+  const allWon = DB.deals.filter(d => d.stage === '계약완료');
+  const dbAvgWon = allWon.length ? allWon.reduce((t, d) => t + num(d.amount), 0) / allWon.length : 0;
+  const dbAct = DB.schedules.filter(x => x.done && String(x.date).slice(0, 7) === ym).length;
+  const dbMiss = DB.schedules.filter(x => !x.done && x.date < today()).length;
 
   /* 밴드 전 항목 드릴다운 — 숫자를 보면 바로 내역을 확인할 수 있어야 한다 */
   DRL.dbA = a; DRL.dbB = b; DRL.dbLabel = label;
@@ -751,7 +757,19 @@ function renderDashboard() {
       <div class="s">종결 ${closed}건 중 ${wonD.length}건</div></div>
     <div class="wt-fact clickable" onclick="drillCusts('거래 고객사','등록된 고객사 전체',DB.customers)">
       <div class="l">거래 고객사</div><b>${DB.customers.length}</b>
-      <div class="s">A등급 ${DB.customers.filter(c => c.grade === 'A').length}곳</div></div>`;
+      <div class="s">A등급 ${DB.customers.filter(c => c.grade === 'A').length}곳</div></div>
+    <div class="wt-fact clickable" onclick="drillDeals('이번달 마감 예정','예상 수주일이 이번달인 열린 딜',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0&&String(d.expectedDate).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 마감 예정</div><b>${dbDue.length}건</b>
+      <div class="s">${money(dbDue.reduce((t, d) => t + num(d.amount), 0))}원</div></div>
+    <div class="wt-fact clickable" onclick="drillDeals('계약완료 딜 전체','평균 규모 산정 대상',DB.deals.filter(function(d){return d.stage==='계약완료'}))">
+      <div class="l">평균 수주 규모</div><b>${money(dbAvgWon)}원</b>
+      <div class="s">계약완료 ${DB.deals.filter(d => d.stage === '계약완료').length}건 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillSch('이번달 완료 활동','방문·전화·데모 등 완료 처리된 일정',DB.schedules.filter(function(x){return x.done&&String(x.date).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 활동</div><b>${dbAct}건</b>
+      <div class="s">${dbMiss ? '결과 미입력 ' + dbMiss + '건' : '완료 처리 기준'}</div></div>
+    <div class="wt-fact clickable" onclick="drillRebuy(true)">
+      <div class="l">재구매 도래</div><b class="${rebuyDue().length ? 'rd' : ''}">${rebuyDue().length}건</b>
+      <div class="s">소모품 재구매 시점</div></div>`;
 
   /* 월별 차트 (최근 12개월, 계약완료 기준) */
   const months = [], labels = [];
@@ -1140,30 +1158,42 @@ function renderOverview() {
           ypT ? '전년 동기간 ' + money(ypT) : '전년 기록 없음', 'drillMixRange()')
     + '</div></div>';
 
-  /* 월별 차트 — 장비/소모품 누적 막대 + 작년 합계 점선 */
+  /* 월별 차트 — 장비/소모품 누적 막대. 값은 막대 위에 직접 표시하므로 y축·격자를 없앤다 */
   const labels = Array.from({ length: 12 }, (_, i) => (i + 1) + '월');
   const dev = [], cons = [], prev = [];
   for (let m = 1; m <= 12; m++) { dev.push(mw(mSum(y, m, '장비'))); cons.push(mw(mSum(y, m, '소모품'))); prev.push(mw(mSum(y - 1, m))); }
+  /* 작년 실적이 아예 없으면 0에 붙은 점선이 그려질 뿐이라 노이즈다 → 시리즈를 넣지 않는다 */
+  const hasPrev = prev.some(v => v > 0);
+  const dsets = [
+    { type: 'bar', label: '장비', data: dev, backgroundColor: '#16a34a', stack: 's', borderRadius: 3,
+      borderColor: '#fff', borderWidth: { top: 2, right: 0, bottom: 0, left: 0 } },
+    { type: 'bar', label: '소모품', data: cons, backgroundColor: '#0e7490', stack: 's', borderRadius: 3,
+      borderColor: '#fff', borderWidth: { top: 2, right: 0, bottom: 0, left: 0 } }
+  ];
+  if (hasPrev) dsets.push({ type: 'line', label: (y - 1) + '년 합계', data: prev, borderColor: '#94a3b8',
+    borderDash: [5, 4], borderWidth: 2, pointRadius: 2, backgroundColor: '#94a3b8' });
+  $('ov-chart-cap').textContent = '막대=장비·소모품'
+    + (hasPrev ? ' · 점선=' + (y - 1) + '년 합계' : '') + ' · 단위 백만원';
   chart('ov-chart-monthly', {
-    data: { labels, datasets: [
-      { type: 'bar', label: '장비', data: dev, backgroundColor: '#16a34a', stack: 's', borderRadius: 3 },
-      { type: 'bar', label: '소모품', data: cons, backgroundColor: '#0e7490', stack: 's', borderRadius: 3 },
-      { type: 'line', label: (y - 1) + '년 합계', data: prev, borderColor: '#94a3b8', borderDash: [5, 4], borderWidth: 2, pointRadius: 2, backgroundColor: '#94a3b8' }
-    ] },
+    plugins: [BAR_TOTAL_LABELS],
+    data: { labels, datasets: dsets },
     options: { responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 20 } },     // 막대 위 숫자가 잘리지 않도록
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
         tooltip: { callbacks: { label: c => c.dataset.label + ' ' + comma(c.parsed.y) + '백만원' } } },
-      scales: { x: { stacked: true, ticks: { font: { size: 10 } }, grid: { display: false } },
-        y: { stacked: true, beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: '#f1f5f9' } } } }
+      scales: { x: { stacked: true, ticks: { font: { size: 11 } }, grid: { display: false },
+                     border: { color: '#e4e8ef' } },
+        y: { stacked: true, beginAtZero: true, display: false, grid: { display: false } } } }
   });
 
-  /* 월별 표 */
-  const rowsHtml = [
+  /* 월별 표 — 작년 행도 실적이 있을 때만 넣는다(전부 '-' 인 행은 읽을 게 없다) */
+  const tableRows = [
     ['장비', m => mSum(y, m, '장비'), '#16a34a'],
     ['소모품', m => mSum(y, m, '소모품'), '#0e7490'],
-    ['합계', m => mSum(y, m), '#182230'],
-    [(y - 1) + '년', m => mSum(y - 1, m), '#94a3b8']
-  ].map(row => {
+    ['합계', m => mSum(y, m), '#182230']
+  ];
+  if (hasPrev) tableRows.push([(y - 1) + '년', m => mSum(y - 1, m), '#94a3b8']);
+  const rowsHtml = tableRows.map(row => {
     const lab = row[0], fn = row[1], col = row[2];
     let tot = 0;
     const tds = Array.from({ length: 12 }, (_, i) => { const v = fn(i + 1); tot += v; return '<td class="text-end">' + (v ? comma(mw(v)) : '-') + '</td>'; }).join('');
@@ -1392,6 +1422,14 @@ let PIPE_CHIP = 'all';
 let SALES_TAB = 'pipeline';
 
 /* 확률가중 예상 드릴다운 — 기여도(금액x확률) 큰 순 */
+/* 유효기간이 지난 '발송' 견적 — 목록·밴드가 같은 기준을 쓰도록 함수로 둔다 */
+function quoteExpired(q) {
+  if (!q || q.status !== '발송' || !q.date) return false;
+  const d = parseD(q.date);
+  if (!d) return false;
+  d.setDate(d.getDate() + num(q.validDays || 30));
+  return ymd(d) < today();
+}
 function drillWgt() {
   const list = DB.deals.filter(d => OPEN_STAGES.indexOf(d.stage) >= 0);
   const tot = list.reduce((t, d) => t + num(d.amount) * num(d.prob) / 100, 0);
@@ -2297,6 +2335,38 @@ function imCommit() {
     + (newCusts ? ' · 고객사 신규 ' + newCusts : ''));
 }
 
+/* 누적 막대 위에 스택 합계를 직접 얹는 플러그인.
+   y축 격자와 눈금을 없애는 대신 값을 막대에 붙여 읽게 한다.
+   값이 0인 달은 라벨을 붙이지 않는다(0이 12개 늘어서면 그게 더 시끄럽다). */
+const BAR_TOTAL_LABELS = {
+  id: 'barTotalLabels',
+  afterDatasetsDraw(c) {
+    const ctx = c.ctx;
+    const labels = (c.data.labels || []);
+    for (let i = 0; i < labels.length; i++) {
+      let total = 0, topY = null, x = null;
+      c.data.datasets.forEach((ds, di) => {
+        if (ds.type === 'line') return;              // 비교용 선은 합계에 넣지 않는다
+        const meta = c.getDatasetMeta(di);
+        if (meta.hidden) return;                     // 범례로 끈 시리즈는 제외
+        const el = meta.data && meta.data[i];
+        if (!el) return;
+        const v = num(ds.data[i]);
+        total += v;
+        if (v > 0 && (topY === null || el.y < topY)) { topY = el.y; x = el.x; }
+      });
+      if (!total || topY === null) continue;
+      ctx.save();
+      ctx.font = '800 10.5px "Noto Sans KR", sans-serif';
+      ctx.fillStyle = '#182230';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(comma(Math.round(total)), x, topY - 5);
+      ctx.restore();
+    }
+  }
+};
+
 function renderSales() {
   const openD = DB.deals.filter(d => OPEN_STAGES.includes(d.stage));
   const y = new Date().getFullYear();
@@ -2307,6 +2377,12 @@ function renderSales() {
   const wonAmt = wonY.reduce((t, d) => t + num(d.amount), 0);
   const closed = wonY.length + lostY.length;
   const winRate = closed ? Math.round(wonY.length / closed * 100) : 0;
+  const thisMonth = today().slice(0, 7);
+  const dueThis = openD.filter(d => String(d.expectedDate).slice(0, 7) === thisMonth);
+  /* 딜 등록부터 계약완료까지 걸린 일수 평균 — 파이프라인 속도 */
+  const cyc = DB.deals.filter(d => d.stage === '계약완료' && d.createdAt && d.closedAt)
+    .map(d => dayDiff(d.createdAt, d.closedAt)).filter(v => v >= 0);
+  const cycleDays = cyc.length ? Math.round(cyc.reduce((a, b) => a + b, 0) / cyc.length) : null;
   /* 카드 4장으로 나누면 카드마다 여백이 크게 남는다 → 다른 페이지와 같은 문서형 밴드로 통일 */
   $('sales-kpi').innerHTML = '<div class="col-12"><div class="wt-band mb-0">'
     + '<div class="wt-hero clickable" onclick="drillDeals(' + Q + '열린 딜 ' + openD.length + '건' + Q + ','
@@ -2327,6 +2403,19 @@ function renderSales() {
       + '<div class="l">수주 성공률</div>'
       + '<b class="' + (winRate >= 50 ? 'gr' : winRate < 30 ? 'rd' : '') + '">' + winRate + '%</b>'
       + '<div class="s">종결 ' + closed + '건 중 실주 ' + lostY.length + '건</div></div>'
+    /* 아래 두 지표는 남는 폭을 채우기도 하지만, 파이프라인을 '언제·얼마나 빨리' 관점으로 읽게 한다 */
+    + '<div class="wt-fact clickable" onclick="drillDeals(' + Q + '이번달 마감 예정' + Q + ','
+      + Q + '예상 수주일이 이번달인 열린 딜' + Q + ', DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0'
+      + ' && String(d.expectedDate).slice(0,7)===' + Q + thisMonth + Q + '}))">'
+      + '<div class="l">이번달 마감 예정</div>'
+      + '<b class="' + (dueThis.length ? '' : 'rd') + '">' + dueThis.length + '건</b>'
+      + '<div class="s">' + money(dueThis.reduce(function (t, d) { return t + num(d.amount); }, 0)) + '원</div></div>'
+    + '<div class="wt-fact clickable" onclick="drillDeals(' + Q + '체결 완료 딜' + Q + ','
+      + Q + '등록일부터 종결일까지 평균 ' + (cycleDays == null ? '-' : cycleDays + '일') + Q
+      + ', DB.deals.filter(function(d){return d.stage===' + Q + '계약완료' + Q + ' && d.createdAt && d.closedAt}))">'
+      + '<div class="l">평균 체결 소요</div>'
+      + '<b>' + (cycleDays == null ? '-' : cycleDays + '일') + '</b>'
+      + '<div class="s">' + (cycleDays == null ? '등록·종결일 기록 부족' : '딜 등록 → 계약완료') + '</div></div>'
     + '</div></div>';
   if (SALES_TAB === 'pipeline') renderPipeline();
   else if (SALES_TAB === 'list') renderDealList();
@@ -3174,6 +3263,9 @@ function renderQuotes() {
   const sent = all.filter(x => x.status === '발송');
   const wonQ = all.filter(x => x.status === '수주');
   const lostQ = all.filter(x => x.status === '실주');
+  const quAvg = all.length ? tot / all.length : 0;
+  const quExp = all.filter(x => quoteExpired(x)).length;
+  const quMonth = all.filter(x => String(x.date).slice(0, 7) === today().slice(0, 7)).length;
   $('quote-band').innerHTML = `
     <div class="wt-hero clickable" onclick="drillQuotes('견적 전체','VAT 포함 총액 ${money(tot)}원',DB.quotes)">
       <div class="l">견적 총액 (VAT 포함)</div><b>${money(tot)}원</b><div class="s">전체 ${all.length}건</div></div>
@@ -3182,7 +3274,16 @@ function renderQuotes() {
     <div class="wt-fact clickable" onclick="drillQuotes('수주 전환 견적','상태가 수주인 견적',DB.quotes.filter(function(x){return x.status==='수주'}))">
       <div class="l">수주 전환</div><b class="gr">${wonQ.length}</b><div class="s">${money(wonQ.reduce((s, x) => s + quoteCalc(x.items).total, 0))}원</div></div>
     <div class="wt-fact clickable" onclick="drillQuotes('실주 견적','성공률 ${(wonQ.length + lostQ.length) ? Math.round(wonQ.length / (wonQ.length + lostQ.length) * 100) : 0}% · 종결 ${wonQ.length + lostQ.length}건 기준',DB.quotes.filter(function(x){return x.status==='실주'}))">
-      <div class="l">견적 성공률</div><b>${(wonQ.length + lostQ.length) ? Math.round(wonQ.length / (wonQ.length + lostQ.length) * 100) : 0}%</b><div class="s">수주/종결 기준</div></div>`;
+      <div class="l">견적 성공률</div><b>${(wonQ.length + lostQ.length) ? Math.round(wonQ.length / (wonQ.length + lostQ.length) * 100) : 0}%</b><div class="s">수주/종결 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('견적 전체','평균 금액 산정 대상',DB.quotes)">
+      <div class="l">평균 견적액</div><b>${money(quAvg)}원</b>
+      <div class="s">VAT 포함 ${all.length}건 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('유효기간 만료 견적','발송 상태인데 유효기간이 지난 견적',DB.quotes.filter(function(x){return quoteExpired(x)}))">
+      <div class="l">유효기간 만료</div><b class="${quExp ? 'rd' : ''}">${quExp}</b>
+      <div class="s">재발송·종결 처리 필요</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('이번달 발송 견적','작성일이 이번달인 견적',DB.quotes.filter(function(x){return String(x.date).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 발송</div><b>${quMonth}</b>
+      <div class="s">견적 활동량</div></div>`;
 
   const rows = all.filter(x => {
     if (st && x.status !== st) return false;
@@ -3193,7 +3294,7 @@ function renderQuotes() {
   $('quote-tbody').innerHTML = rows.length ? rows.map(x => {
     const c = quoteCalc(x.items);
     const until = x.date ? (() => { const d = parseD(x.date); d.setDate(d.getDate() + num(x.validDays || 30)); return ymd(d); })() : '';
-    const expired = until && until < today() && x.status === '발송';
+    const expired = quoteExpired(x);
     return `<tr>
       <td class="fw-bold">${esc(x.no)}</td>
       <td><a class="cust-link" onclick="openCustDetail('${x.custId}')">${esc(custName(x.custId))}</a></td>
@@ -3431,6 +3532,14 @@ function renderCustomers() {
   const all = DB.customers;
   const gradeCnt = ['A','B','C','D'].map(x => all.filter(c => c.grade === x).length);
   const totalWon = DB.deals.filter(d => d.stage === '계약완료').reduce((s, d) => s + num(d.amount), 0);
+  const cuPayList = all.filter(c => custWonAmount(c.id) > 0);
+  const cuPaying = cuPayList.length;
+  const cuAvg = cuPaying ? cuPayList.reduce((t, c) => t + custWonAmount(c.id), 0) / cuPaying : 0;
+  const cuCold = all.filter(c => {
+    const last = DB.logs.filter(l => l.custId === c.id).map(l => l.date).sort().pop();
+    return !last || (-dDays(last)) > 60;
+  }).length;
+  const cuNew = all.filter(c => String(c.createdAt).slice(0, 7) === today().slice(0, 7)).length;
   $('cust-band').innerHTML = `
     <div class="wt-hero clickable" onclick="drillCusts('전체 고객사','누적 수주 ${money(totalWon)}원',DB.customers)">
       <div class="l">전체 고객사</div><b>${all.length}곳</b>
@@ -3442,7 +3551,16 @@ function renderCustomers() {
     <div class="wt-fact clickable" onclick="drillCusts('장비 보유 고객사','설치 장비가 1대 이상인 고객사',DB.customers.filter(function(c){return DB.equipments.some(function(e){return e.custId===c.id})}))">
       <div class="l">장비 보유</div><b>${new Set(DB.equipments.map(e => e.custId)).size}곳</b><div class="s">설치 ${DB.equipments.length}대</div></div>
     <div class="wt-fact clickable" onclick="drillCusts('30일 내 접촉 고객사','최근 30일 상담일지가 있는 고객사',DB.customers.filter(function(c){return DB.logs.some(function(l){return l.custId===c.id&&(-dDays(l.date))<=30})}))">
-      <div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">상담일지 기준</div></div>`;
+      <div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">상담일지 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('누적 수주가 있는 고객사','평균 산정 대상',DB.customers.filter(function(c){return custWonAmount(c.id)>0}))">
+      <div class="l">고객사당 평균</div><b>${money(cuAvg)}원</b>
+      <div class="s">거래 있는 ${cuPaying}곳 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('60일 이상 미접촉','상담일지가 60일 이상 없는 고객사',DB.customers.filter(function(c){var L=DB.logs.filter(function(l){return l.custId===c.id}).map(function(l){return l.date}).sort().pop();return !L||(-dDays(L))>60}))">
+      <div class="l">60일+ 미접촉</div><b class="${cuCold ? 'rd' : ''}">${cuCold}곳</b>
+      <div class="s">이탈 위험 관리 대상</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('이번달 신규 등록','createdAt 기준',DB.customers.filter(function(c){return String(c.createdAt).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 신규</div><b>${cuNew}곳</b>
+      <div class="s">신규 등록 고객사</div></div>`;
 
   const tags = [...new Set(all.flatMap(c => (c.tags || []).map(t => String(t).trim()).filter(Boolean)))];
   $('c-tagbar').innerHTML = tags.length ? `<span class="pipe-chip ${C_TAG ? '' : 'on'}" onclick="setCTag('')">전체</span>`
@@ -3886,6 +4004,9 @@ function renderEquip() {
   const all = DB.equipments;
   const soon = all.filter(e => { const n = dDays(e.warrantyEnd); return n != null && n >= 0 && n <= 90; });
   const expired = all.filter(e => { const n = dDays(e.warrantyEnd); return n != null && n < 0; });
+  const eqValid = all.filter(e => { const d = dDays(e.warrantyEnd); return d != null && d > 90; }).length;
+  const eqAges = all.filter(e => e.installDate).map(e => dayDiff(e.installDate, today()) / 365).filter(v => v >= 0);
+  const eqAge = eqAges.length ? Math.round(eqAges.reduce((a, b) => a + b, 0) / eqAges.length * 10) / 10 : null;
   $('equip-band').innerHTML = `
     <div class="wt-hero clickable" onclick="drillEquip('설치 장비 전체','${new Set(all.map(e => e.custId)).size}개 고객사에 ${all.length}대',DB.equipments)">
       <div class="l">설치 장비 (Installed Base)</div><b>${all.length}대</b>
@@ -3901,7 +4022,13 @@ function renderEquip() {
     <div class="wt-fact clickable" onclick="drillRebuy(true)">
       <div class="l">소모품 재구매 도래</div>
       <b class="${rebuyDue().length ? 'rd' : ''}">${rebuyDue().length}</b>
-      <div class="s">${money(rebuyDue().reduce((s, x) => s + x.avgAmt, 0))}원 규모</div></div>`;
+      <div class="s">${money(rebuyDue().reduce((s, x) => s + x.avgAmt, 0))}원 규모</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('보증 유효 장비','보증만료일이 남아 있는 장비',DB.equipments.filter(function(e){var d=dDays(e.warrantyEnd);return d!=null&&d>90}))">
+      <div class="l">보증 유효</div><b class="gr">${eqValid}</b>
+      <div class="s">90일 이상 남음</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('설치일 기록 장비','평균 사용연수 산정 대상',DB.equipments.filter(function(e){return !!e.installDate}))">
+      <div class="l">평균 사용연수</div><b>${eqAge == null ? '-' : eqAge + '년'}</b>
+      <div class="s">${eqAge == null ? '설치일 기록 부족' : '교체 제안 판단 기준'}</div></div>`;
 
   const rows = all.filter(e => {
     if (st && e.status !== st) return false;

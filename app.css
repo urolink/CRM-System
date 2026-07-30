@@ -45,23 +45,31 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .wt-mast .kick{font-size:11px;font-weight:800;letter-spacing:.14em;color:#94a3b8;text-transform:uppercase}
 .wt-mast .t{font-size:22px;font-weight:800;color:#182230;letter-spacing:-.01em;margin-top:4px}
 .wt-mast .t i{color:var(--blue)}
-.wt-band{display:flex;align-items:stretch;background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px 26px;margin-bottom:20px}
-.wt-hero{flex:1.5;padding-right:22px;display:flex;flex-direction:column;justify-content:center;min-width:0}
-.wt-hero .l{font-size:11.5px;font-weight:700;color:var(--text-2)}
-.wt-hero>b{font-size:34px;font-weight:800;color:var(--blue);letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.08}
-.wt-hero .s{font-size:12px;color:var(--text-2);margin-top:3px}
-.wt-fact{flex:1;padding:2px 18px;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;min-width:0}
+/* flex + flex-grow 로는 남는 폭이 컬럼 '안쪽' 여백으로 쌓인다.
+   그리드로 바꿔 컬럼이 폭을 실제로 나눠 갖게 하고, 히어로만 조금 넓게 준다.
+   grid-auto-flow:column 이라 자식 수(4~6개)가 달라도 자동으로 맞는다. */
+.wt-band{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);align-items:stretch;
+  background:#fff;border:1px solid var(--border);border-radius:14px;padding:15px 18px;margin-bottom:14px}
+.wt-hero{grid-column:span 2;padding-right:16px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.wt-hero .l{font-size:12.5px;font-weight:700;color:#475569}
+.wt-hero>b{font-size:33px;font-weight:800;color:var(--blue);letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.wt-hero .s{font-size:12.5px;color:var(--text-2);margin-top:3px}
+.wt-fact{padding:2px 0 2px 14px;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;min-width:0}
 .wt-fact.clickable{cursor:pointer}
-.wt-fact .l{font-size:11px;font-weight:700;color:var(--text-2);white-space:nowrap}
+.wt-fact .l{font-size:12px;font-weight:700;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wt-fact b{font-size:21px;font-weight:800;color:#182230;font-variant-numeric:tabular-nums;white-space:nowrap;margin-top:2px}
-.wt-fact .s{font-size:10.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wt-fact .s{font-size:11.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wt-fact.clickable{cursor:pointer;border-radius:6px;transition:background .12s}
+.wt-fact.clickable:hover{background:#f6f9fb}
+.wt-hero.clickable{cursor:pointer;border-radius:6px;transition:background .12s}
+.wt-hero.clickable:hover{background:#f6f9fb}
 .wt-fact b.rd{color:var(--red)}.wt-fact b.gr{color:#15803d}
 .wt-st{font-size:14px;font-weight:800;color:#182230;padding-bottom:8px;border-bottom:2px solid var(--ink);margin-bottom:12px}
-@media(max-width:720px){
-  .wt-band{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .wt-hero{grid-column:1/-1;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:12px}
+@media(max-width:900px){
+  .wt-band{grid-auto-flow:row;grid-template-columns:1fr 1fr;gap:12px 10px}
+  .wt-hero{grid-column:1/-1;padding-right:0;border-bottom:1px solid var(--border);padding-bottom:10px}
   .wt-fact{border-left:0!important;padding:0}
-  .wt-hero>b{font-size:29px}
+  .wt-hero>b{font-size:27px}
 }
 
 /* ── 일정 모달: 병원(고객사) 상세 요약 패널 ── */
@@ -134,12 +142,12 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .cdud .ovc:first-child{border-left:0;padding-left:0}
 .cdud .ovc.sep{border-left:1px solid #cbd5e1}
 .cdud .ovc:hover{background:#f6f9fb}
-.cdud .ovc-l{display:block;font-size:11.5px;font-weight:700;color:#475569;
+.cdud .ovc-l{display:block;font-size:12.5px;font-weight:700;color:#475569;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cdud .ovc-v{display:block;font-size:21px;font-weight:800;color:#182230;line-height:1.15;
+.cdud .ovc-v{display:block;font-size:23px;font-weight:800;color:#182230;line-height:1.15;
   letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap}
-.cdud .ovc.hero .ovc-v{font-size:31px;color:#182230;line-height:1.08}
-.cdud .ovc-s{display:block;font-size:11px;color:#94a3b8;margin-top:3px;
+.cdud .ovc.hero .ovc-v{font-size:34px;color:#182230;line-height:1.08}
+.cdud .ovc-s{display:block;font-size:11.5px;color:#94a3b8;margin-top:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:1100px){
   .cdud .ov-band{grid-template-columns:1.5fr 1fr 1fr}
@@ -342,10 +350,14 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .tag-chip{display:inline-block;font-size:10.5px;font-weight:600;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:1px 6px;margin-right:3px}
 
 /* ── 파이프라인 칸반 ── */
-.pipeline-board{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;align-items:stretch}
-.pipeline-col{min-width:210px;flex:1;background:#f9fafb;border-radius:12px;padding:12px;border:1px solid var(--border);transition:background .15s,border-color .15s}
+/* 컬럼이 남는 폭을 다 나눠 가지면 카드 한 장에 400px 이 배정돼 텅 비어 보인다.
+   그리드로 컬럼 폭에 상한을 두고, 화면이 넓으면 컬럼을 넓히는 대신 여백을 남긴다. */
+.pipeline-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(178px,1fr);gap:10px;
+  overflow-x:auto;padding-bottom:6px;align-items:stretch;max-width:1180px}
+.pipeline-col{min-width:0;background:#f9fafb;border-radius:10px;padding:9px;border:1px solid var(--border);transition:background .15s,border-color .15s}
 .pipeline-col.drag-over{background:#e0f4f9;border-color:var(--blue);border-style:dashed}
-.pipeline-col-header{font-size:11px;font-weight:800;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;letter-spacing:.05em;text-transform:uppercase}
+.pipeline-col-header{font-size:11px;font-weight:800;margin-bottom:8px;display:flex;justify-content:space-between;
+  align-items:center;gap:5px;letter-spacing:.02em;padding-bottom:6px;border-bottom:1px solid #e8edf3}
 .deal-card{background:#fff;border-radius:10px;padding:9px 11px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer;transition:all .18s;border:1px solid var(--border)}
 .deal-card:hover{box-shadow:0 6px 16px rgba(0,0,0,.1);transform:translateY(-1px)}
 .deal-card.dragging{opacity:.4;transform:rotate(2deg)}
