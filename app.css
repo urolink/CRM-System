@@ -98,6 +98,60 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
   padding:5px 7px;margin-top:7px;white-space:pre-wrap;word-break:break-word}
 .sci-memo b{font-weight:800;color:#64748b;margin-right:4px}
 
+/* ── 실주 기록 블록 (딜 모달) ── */
+.lost-box{border:1px solid #fecaca;background:#fff5f5;border-radius:12px;padding:14px 16px 16px}
+.lost-t{font-size:13px;font-weight:800;color:#b91c1c;padding-bottom:9px;margin-bottom:12px;border-bottom:1px solid #fecaca}
+.lost-t span{font-weight:600;color:#dc2626;font-size:11.5px}
+/* ── 영업분석 공통 소자 ── */
+.ana-sum{font-size:12.5px;color:#334155;margin-bottom:9px}
+.ana-sum b{color:#182230;font-weight:800}
+.ana-sum em{font-style:normal;color:#ea580c;font-weight:700}
+.ana-empty{color:#94a3b8;font-size:13px;padding:24px 0;text-align:center;line-height:1.7}
+.ana-empty span{display:block;font-size:11.5px;color:#cbd5e1}
+.ana-note{font-size:11px;color:#94a3b8;margin-top:8px;line-height:1.55}
+
+/* ── 중복 고객사 검사 ── */
+.dup-grp{border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.dup-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fffbeb;border-bottom:1px solid #fde68a;padding:9px 12px}
+.dup-h>b{font-size:12.5px;font-weight:800;color:#92400e}
+.dup-why{font-size:11px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:5px;padding:2px 7px}
+.dup-rec{font-size:11px;color:#a16207}
+.dup-t{font-size:12px}
+.dup-t th{font-size:11px;font-weight:700;color:var(--text-2);white-space:nowrap}
+.dup-t td{vertical-align:middle}
+.dup-u{font-size:10.5px;color:#64748b;white-space:nowrap}
+.dup-auto{font-size:9.5px;font-weight:700;color:#7c3aed;background:#ede9fe;border-radius:4px;padding:1px 5px}
+
+/* ── 종합 밴드 (그리드) ──
+   컬럼 하나가 지표 하나를 갖고 폭을 실제로 나눠 가진다.
+   flex + margin-auto 방식은 여백을 컬럼 '안쪽'으로 옮길 뿐이라 그리드로 간다.
+   선택자를 .cdud 안쪽으로 깊게 잡아 아래 .cdud 규칙보다 우선하게 한다. */
+.cdud .ov-band{display:grid;grid-template-columns:1.5fr 1fr 1fr 1.5fr 1fr 1fr;
+  align-items:stretch;padding:2px 0 6px}
+.cdud .ov-band2{border-top:1px solid #e4e8ef;margin-top:14px;padding:16px 0 0}
+.cdud .ovc{min-width:0;padding:2px 14px;border-left:1px solid #eef2f7;cursor:pointer;
+  display:flex;flex-direction:column;justify-content:center;border-radius:6px;transition:background .12s}
+.cdud .ovc:first-child{border-left:0;padding-left:0}
+.cdud .ovc.sep{border-left:1px solid #cbd5e1}
+.cdud .ovc:hover{background:#f6f9fb}
+.cdud .ovc-l{display:block;font-size:11.5px;font-weight:700;color:#475569;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cdud .ovc-v{display:block;font-size:21px;font-weight:800;color:#182230;line-height:1.15;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap}
+.cdud .ovc.hero .ovc-v{font-size:31px;color:#182230;line-height:1.08}
+.cdud .ovc-s{display:block;font-size:11px;color:#94a3b8;margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1100px){
+  .cdud .ov-band{grid-template-columns:1.5fr 1fr 1fr}
+  .cdud .ovc:nth-child(4){border-left:0;padding-left:0}
+  .cdud .ov-band>.ovc{padding-top:10px;padding-bottom:10px}
+}
+@media(max-width:640px){
+  .cdud .ov-band{grid-template-columns:1fr 1fr}
+  .cdud .ovc.hero{grid-column:1/-1}
+  .cdud .ovc:nth-child(odd){border-left:0;padding-left:0}
+}
+
 /* ══ 문서형 KPI 밴드 (원텍 한국영업 .cdud 이식) ══ */
 .cdud{--ink:#182230;--mut:#64748b;--line:#e4e8ef;--navy:#16324f;--acc:#0e7490;--rd:#dc2626;--grn:#15803d;
   background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px 34px 32px;letter-spacing:-.01em}

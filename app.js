@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730r';
+const APP_VERSION = '20260730s';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -573,6 +573,23 @@ function refreshDatalists() {
   fillDatalist('dl-sido', [...new Set(DB.customers.map(c => c.sido).filter(Boolean))].sort());
 }
 const trimv = v => String(v == null ? '' : v).trim();
+/* 전화번호 비교용 — 하이픈/공백 표기차를 무시한다 */
+const digitsOnly = v => String(v == null ? '' : v).replace(/[^0-9]/g, '');
+/* onclick 문자열 안에 쓰는 단일인용부호. HTML 속성은 큰따옴표로 감싸므로 그대로 유효하다.
+   (백슬래시 이스케이프는 파이썬/셸을 거치며 깨지기 쉬워 상수로 둔다) */
+const Q = String.fromCharCode(39);
+/* 변경 기록용 사용자 표시명 (로컬 모드면 빈 문자열) */
+const curUserName = () => (ME && (ME.display_name || ME.email)) || '';
+
+/* 실주 사유 — 유로링크에서 실제로 쓰는 표현으로 자유롭게 고쳐 쓰면 된다 */
+const LOST_REASONS = ['가격 열위', '경쟁사 스펙 우위', '예산 미확보 · 보류', '기존 거래처 관계',
+  '납기 지연', '의사결정 지연 · 무응답', '원내 승인 실패', '기타'];
+/* 경쟁사 추천 목록의 시작값. 실제 입력한 값이 자동으로 누적되므로 초기 참고용이다 */
+const COMP_SEED = ['Olympus', 'KARL STORZ', 'Richard Wolf', 'Boston Scientific',
+  'Cook Medical', 'Lumenis', 'Quanta System', 'Dornier', 'EMS'];
+const compNames = () => [...new Set([
+  ...DB.deals.map(d => trimv(d.competitor)).filter(Boolean), ...COMP_SEED
+])].sort((a, b) => a.localeCompare(b));
 const prodByName = nm => DB.products.find(p => p.name === nm) || DB.products.find(p => p.code === nm);
 const AUTO_ADDED = [];   /* 이번 저장에서 자동 등록된 항목 안내용 */
 
@@ -622,6 +639,8 @@ function refreshSelects() {
   /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
   ['pipe-rep','c-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
   fillSelect($('d-stage'), STAGES.map(s => s.name));
+  fillSelect($('d-lost-reason'), LOST_REASONS, { blank: '선택하세요', keep: true });
+  fillDatalist('dl-comp', compNames());
   fillSelect($('dl-stage'), STAGES.map(s => s.name), { blank: '전체 단계', keep: true });
   fillSelect($('p-cat'), [...new Set(DB.products.map(p => p.cat))], { blank: '전체 분류', keep: true });
   fillSelect($('c-region'), [...new Set(DB.customers.map(c => c.sido).filter(Boolean))].sort(), { blank: '전체 지역', keep: true });
@@ -670,20 +689,22 @@ function renderDashboard() {
   const closed = wonD.length + lostD.length;
   const winRate = closed ? Math.round(wonD.length / closed * 100) : 0;
 
+  /* 밴드 전 항목 드릴다운 — 숫자를 보면 바로 내역을 확인할 수 있어야 한다 */
+  DRL.dbA = a; DRL.dbB = b; DRL.dbLabel = label;
   $('db-band').innerHTML = `
-    <div class="wt-hero">
+    <div class="wt-hero clickable" onclick="drillDeals('${esc(label)} 확정 수주','${esc(label)} (${fmtDate(a)}~${fmtDate(b)}) 예상 수주일 기준 계약완료',DB.deals.filter(function(d){return d.stage==='계약완료'&&inRange(d.expectedDate,DRL.dbA,DRL.dbB)}))">
       <div class="l">${esc(label)} 확정 수주 (계약완료)</div>
       <b>${money(wonAmt)}원</b>
       <div class="s">${wonD.length}건 · 평균 ${money(wonD.length ? wonAmt / wonD.length : 0)}원</div>
     </div>
-    <div class="wt-fact clickable" onclick="showPage('sales')">
+    <div class="wt-fact clickable" onclick="drillDeals('진행 파이프라인','계약완료·실주를 제외한 열린 딜 전체',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))">
       <div class="l">진행 파이프라인</div><b>${money(openAmt)}원</b><div class="s">${openD.length}건 열림</div></div>
-    <div class="wt-fact">
+    <div class="wt-fact clickable" onclick="drillWgt()">
       <div class="l">확률가중 예상</div><b>${money(wgt)}원</b><div class="s">단계 확률 반영</div></div>
-    <div class="wt-fact">
+    <div class="wt-fact clickable" onclick="drillDeals('${esc(label)} 종결 딜','계약완료 ${wonD.length}건 + 실주 ${lostD.length}건 · 성공률 ${winRate}%',DB.deals.filter(function(d){return (d.stage==='계약완료'||d.stage==='실주')&&inRange(d.expectedDate,DRL.dbA,DRL.dbB)}))">
       <div class="l">수주 성공률</div><b class="${winRate >= 50 ? 'gr' : winRate < 30 ? 'rd' : ''}">${winRate}%</b>
       <div class="s">종결 ${closed}건 중 ${wonD.length}건</div></div>
-    <div class="wt-fact clickable" onclick="showPage('customers')">
+    <div class="wt-fact clickable" onclick="drillCusts('거래 고객사','등록된 고객사 전체',DB.customers)">
       <div class="l">거래 고객사</div><b>${DB.customers.length}</b>
       <div class="s">A등급 ${DB.customers.filter(c => c.grade === 'A').length}곳</div></div>`;
 
@@ -776,6 +797,9 @@ function renderDashboard() {
     if ((c.grade === 'A' || c.grade === 'B') && (n == null || n > 60))
       alerts.push({ ic: 'bi-person-dash', c: '#7c3aed', t: c.name, s: last ? `${n}일간 접촉 없음 (${c.grade}등급)` : `접촉 이력 없음 (${c.grade}등급)`, go: `openCustDetail('${c.id}')` });
   });
+  /* 실주했지만 재도전 시점이 도래한 딜 — 놓치면 그대로 사라진다 */
+  retryDueDeals().forEach(d => alerts.push({ ic: 'bi-arrow-repeat', c: '#0e7490', t: custName(d.custId),
+    s: `재도전 시점 도래 (${fmtDate(d.retryDate)}) · ${esc(trimv(d.lostReason) || '실주')}`, go: `openDrawer('${d.id}')` }));
   $('db-alerts').innerHTML = alerts.length ? alerts.slice(0, 20).map(x =>
     `<div onclick="${x.go}" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;background:#fafbfc;border:1px solid #eef1f5;margin-bottom:6px;cursor:pointer">
       <i class="bi ${x.ic}" style="color:${x.c};font-size:15px"></i>
@@ -809,7 +833,7 @@ function mSum(year, m, cat) {
 }
 function rSum(year, a, b, cat) { let t = 0; for (let m = a; m <= b; m++) t += mSum(year, m, cat); return t; }
 function badgeYoy(cur, prev) {
-  if (!prev) return '<span class="yoy na">전년 -</span>';
+  if (!prev) return '<span class="yoy na">비교 불가</span>';
   const r = (cur / prev - 1) * 100;
   return '<span class="yoy ' + (r >= 0 ? 'up' : 'dn') + '">' + (r >= 0 ? '▲' : '▼') + Math.abs(r).toFixed(1) + '%</span>';
 }
@@ -1008,24 +1032,45 @@ function renderOverview() {
   const openD = DB.deals.filter(d => OPEN_STAGES.includes(d.stage));
   const openAmt = openD.reduce((s, d) => s + num(d.amount), 0);
   const wgt = openD.reduce((s, d) => s + num(d.amount) * num(d.prob) / 100, 0);
+  DRL.ovY = y; DRL.ovA = a; DRL.ovB = b;
 
-  const mini = (lab, v, pv) => '<div><div class="cdud-mini">' + lab + '</div>'
-    + '<div class="cdud-mini-v">' + money(v) + '</div>'
-    + '<div class="cdud-mini-s">전년 ' + money(pv) + ' ' + badgeYoy(v, pv) + '</div></div>';
-  const half = (lab, v, sub, d, c, brd) => '<div class="cdud-half" style="flex:1 1 340px;display:flex;align-items:center;gap:18px;min-width:0;'
-    + (brd ? 'border-left:1px solid #e4e8ef;padding-left:24px' : 'padding-right:20px') + '">'
-    + '<div class="cdud-hero" style="flex:1.3;padding-right:0" onclick="showPage(\'mix\')"><span class="l">' + lab + '</span><b>' + money(v) + '</b><span class="s">' + sub + '</span></div>'
-    + '<div style="display:flex;flex-direction:column;gap:11px;min-width:92px;border-left:1px solid #eef2f7;padding-left:14px">' + d + c + '</div></div>';
+  /* 컬럼 하나 = 지표 하나. 그리드가 폭을 나눠 가지므로 죽은 공간이 생기지 않는다 */
+  const col = (cls, lab, val, sub, go) => '<div class="ovc ' + cls + '" onclick="' + go + '">'
+    + '<span class="ovc-l">' + lab + '</span>'
+    + '<b class="ovc-v">' + val + '</b>'
+    + '<span class="ovc-s">' + sub + '</span></div>';
+  /* 전년 실적이 0이면 '전년 0 · 비교 불가' 로 두 번 말하게 되므로 한 문구로 줄인다 */
+  const yoySub = (pre, v, pv) => pv ? pre + ' ' + money(pv) + ' ' + badgeYoy(v, pv)
+    : pre + ' 기록 없음';
+  const catCol = (lab, v, pv, cat) => col('', lab, money(v), yoySub('전년', v, pv),
+    'drillMixCat(' + Q + esc(cat) + Q + ')');
 
-  $('ov-kpi').innerHTML = '<div class="cdud" style="padding:18px 22px;margin:0">'
-    + '<div style="display:flex;flex-wrap:wrap;align-items:stretch;padding:2px 0 4px">'
-    + half('당월 · ' + b + '월', moT, '전년 동월 ' + money(moPT) + ' ' + badgeYoy(moT, moPT), mini('장비', moD, moPD), mini('소모품', moC, moPC), false)
-    + half('누계 · ' + y + '년 ' + a + '~' + b + '월', ytT, '전년 동기간 ' + money(ypT) + ' ' + badgeYoy(ytT, ypT), mini('장비', ytD, ypD), mini('소모품', ytC, ypC), true)
+  /* 예전에는 파이프라인 3항목을 밴드 아래 작은 한 줄로 눌러놨다.
+     밴드 안쪽 여백은 크게 남는데 정작 선행지표는 안 읽혔으므로 같은 격으로 올린다. */
+  const openGo = 'drillDeals(' + Q + '진행 파이프라인' + Q + ',' + Q + '계약완료·실주를 제외한 열린 딜'
+    + Q + ',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))';
+  $('ov-kpi').innerHTML = '<div class="cdud" style="padding:18px 22px 20px;margin:0">'
+    + '<div class="ov-band">'
+      + col('hero', '당월 · ' + b + '월', money(moT),
+          yoySub('전년 동월', moT, moPT), 'drillMixMonth()')
+      + catCol('당월 장비', moD, moPD, '장비')
+      + catCol('당월 소모품', moC, moPC, '소모품')
+      + col('hero sep', '누계 · ' + y + '년 ' + a + '~' + b + '월', money(ytT),
+          yoySub('전년 동기간', ytT, ypT), 'drillMixRange()')
+      + catCol('누계 장비', ytD, ypD, '장비')
+      + catCol('누계 소모품', ytC, ypC, '소모품')
     + '</div>'
-    + '<div style="font-size:11px;color:#64748b;padding-top:8px;border-top:1px solid #e4e8ef;margin-top:6px">'
-    + '진행 파이프라인 <b style="color:#182230">' + money(openAmt) + '</b> (' + openD.length + '건) · '
-    + '확률가중 예상 <b style="color:#182230">' + money(wgt) + '</b> · '
-    + '기간 합계 대비 <b style="color:#0e7490">' + (ytT ? Math.round(wgt / ytT * 100) : 0) + '%</b> 규모'
+    + '<div class="ov-band ov-band2">'
+      + col('', '진행 파이프라인', money(openAmt), openD.length + '건 열림', openGo)
+      + col('', '확률가중 예상', money(wgt), '단계 확률 반영', 'drillWgt()')
+      + col('', '누계 대비 규모', (ytT ? Math.round(wgt / ytT * 100) : 0) + '%',
+          '파이프라인 / 누계 수주', 'drillWgt()')
+      + col('', '열린 딜 평균', money(openD.length ? openAmt / openD.length : 0),
+          '딜 1건당 규모', openGo)
+      + col('', '당월 비중', (ytT ? Math.round(moT / ytT * 100) : 0) + '%',
+          '누계 중 당월분', 'drillMixMonth()')
+      + col('', '전년 대비 누계', ypT ? ((ytT >= ypT ? '+' : '') + Math.round((ytT / ypT - 1) * 100) + '%') : '-',
+          ypT ? '전년 동기간 ' + money(ypT) : '전년 기록 없음', 'drillMixRange()')
     + '</div></div>';
 
   /* 월별 차트 — 장비/소모품 누적 막대 + 작년 합계 점선 */
@@ -1277,20 +1322,177 @@ function renderMix() {
 let PIPE_CHIP = 'all';
 let SALES_TAB = 'pipeline';
 
+/* 확률가중 예상 드릴다운 — 기여도(금액x확률) 큰 순 */
+function drillWgt() {
+  const list = DB.deals.filter(d => OPEN_STAGES.indexOf(d.stage) >= 0);
+  const tot = list.reduce((t, d) => t + num(d.amount) * num(d.prob) / 100, 0);
+  const rows = list.slice()
+    .sort((a, b) => (num(b.amount) * num(b.prob)) - (num(a.amount) * num(a.prob)))
+    .map(d => {
+      const st = stageOf(d.stage), w = num(d.amount) * num(d.prob) / 100;
+      return '<tr style="cursor:pointer" onclick="drillGo(function(){openDrawer(&#39;' + d.id + '&#39;)})">'
+        + '<td class="fw-bold">' + esc(custName(d.custId)) + '</td>'
+        + '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(d.product) + '</td>'
+        + '<td><span class="badge" style="background:' + st.color + '1a;color:' + st.color + '">' + esc(d.stage) + '</span></td>'
+        + '<td class="text-center">' + num(d.prob) + '%</td>'
+        + '<td class="text-end">' + comma(d.amount) + '</td>'
+        + '<td class="text-end fw-bold">' + comma(Math.round(w)) + '</td>'
+        + '<td>' + fmtDate(d.expectedDate) + '</td><td>' + esc(d.rep || '-') + '</td></tr>';
+    });
+  const foot = '<td class="fw-bold">합계</td><td colspan="4">' + list.length + '건</td>'
+    + '<td class="text-end fw-bold">' + comma(Math.round(tot)) + '</td><td colspan="2"></td>';
+  openDrill('확률가중 예상 ' + money(tot) + '원', '금액 x 단계확률 기여도 순',
+    drillTable(['고객사','제품','단계','확률','딜 금액','가중 금액','예상일','담당'], rows, list.length ? foot : ''));
+}
+
+/* ── 실주 분해: 사유 / 담당자 / 경쟁사 ──
+   건수는 왼쪽 열, 금액은 오른쪽 열로 각각 정렬(퍼널과 동일 규칙) */
+function lostBreakdown(key, emptyLabel) {
+  const lost = DB.deals.filter(d => d.stage === '실주');
+  if (!lost.length) return '<div class="ana-empty">실주 딜이 없습니다</div>';
+  const g = {};
+  lost.forEach(d => {
+    const k = trimv(d[key]) || emptyLabel;
+    if (!g[k]) g[k] = { cnt: 0, amt: 0 };
+    g[k].cnt++;
+    g[k].amt += num(d.amount);
+  });
+  const rows = Object.entries(g).sort((a, b) => b[1].amt - a[1].amt);
+  const maxA = Math.max(1, ...rows.map(r => r[1].amt));
+  const totA = lost.reduce((t, d) => t + num(d.amount), 0);
+  const unrec = lost.filter(d => !trimv(d.lostReason)).length;
+  return '<div class="ana-sum">실주 <b>' + lost.length + '건</b> · <b>' + money(totA) + '원</b>'
+      + (key === 'lostReason' && unrec ? ' <em>· 사유 미기록 ' + unrec + '건</em>' : '') + '</div>'
+    + rows.map(([k, v]) =>
+        '<div class="funnel-row clk" onclick="drillLostBy(&#39;' + esc(key) + '&#39;,&#39;' + esc(k)
+          + '&#39;,&#39;' + esc(emptyLabel) + '&#39;)">'
+        + '<div class="funnel-label" style="width:108px">' + esc(k) + '</div>'
+        + '<div class="funnel-cnt">' + v.cnt + '건</div>'
+        + '<div class="funnel-bar-wrap"><div class="funnel-bar" style="width:'
+          + (v.amt / maxA * 100) + '%;background:#dc2626"></div></div>'
+        + '<div class="funnel-amt">' + money(v.amt) + '원</div></div>').join('');
+}
+
+/* 경쟁사별 승패 — 경쟁사는 실주 딜에만 기록되므로 패는 확정,
+   승은 그 경쟁사와 맞붙은 고객사에서 우리가 계약완료한 건수로 추정한다 */
+function compWinTable() {
+  const lost = DB.deals.filter(d => d.stage === '실주' && trimv(d.competitor));
+  if (!lost.length) return '<div class="ana-empty">경쟁사 기록이 없습니다'
+    + '<span>실주 딜을 수정해 경쟁사를 입력하면 집계됩니다</span></div>';
+  const g = {};
+  lost.forEach(d => {
+    const k = trimv(d.competitor);
+    if (!g[k]) g[k] = { cnt: 0, amt: 0, gaps: [], custs: [] };
+    g[k].cnt++;
+    g[k].amt += num(d.amount);
+    if (g[k].custs.indexOf(d.custId) < 0) g[k].custs.push(d.custId);
+    if (num(d.lostPrice) && num(d.amount)) {
+      g[k].gaps.push((num(d.lostPrice) - num(d.amount)) / num(d.amount) * 100);
+    }
+  });
+  const rows = Object.entries(g).sort((a, b) => b[1].amt - a[1].amt).map(([k, v]) => {
+    const wonAt = DB.deals.filter(d => d.stage === '계약완료' && v.custs.indexOf(d.custId) >= 0).length;
+    const closed = wonAt + v.cnt;
+    const wr = closed ? Math.round(wonAt / closed * 100) : 0;
+    const gap = v.gaps.length ? Math.round(v.gaps.reduce((t, x) => t + x, 0) / v.gaps.length) : null;
+    return '<tr style="cursor:pointer" onclick="drillLostBy(&#39;competitor&#39;,&#39;' + esc(k)
+        + '&#39;,&#39;미기록&#39;)">'
+      + '<td class="fw-bold">' + esc(k) + '</td>'
+      + '<td class="text-center fw-bold" style="color:#dc2626">' + v.cnt + '</td>'
+      + '<td class="text-end">' + comma(v.amt) + '</td>'
+      + '<td class="text-center">' + wonAt + '</td>'
+      + '<td class="text-center fw-bold" style="color:' + (wr >= 50 ? '#15803d' : '#dc2626') + '">' + wr + '%</td>'
+      + '<td class="text-end">' + (gap === null ? '-' : (gap > 0 ? '+' : '') + gap + '%') + '</td></tr>';
+  });
+  return '<div style="overflow-x:auto"><table class="table table-hover mb-0" style="font-size:12.5px">'
+    + '<thead><tr><th>경쟁사</th><th class="text-center">패</th><th class="text-end">실주액</th>'
+    + '<th class="text-center">승</th><th class="text-center">승률</th><th class="text-end">견적차</th></tr></thead>'
+    + '<tbody>' + rows.join('') + '</tbody></table></div>'
+    + '<div class="ana-note">승률은 해당 경쟁사와 맞붙은 고객사에서의 우리 계약완료 기준 추정치입니다. '
+    + '견적차는 경쟁사가 우리보다 비쌌으면 +로 표시됩니다.</div>';
+}
+
+function drillLostBy(key, val, emptyLabel) {
+  const list = DB.deals.filter(d => d.stage === '실주' && (trimv(d[key]) || emptyLabel) === val);
+  const labels = { lostReason: '실주 사유', rep: '담당자', competitor: '경쟁사' };
+  drillLostDetail((labels[key] || key) + ' · ' + val,
+    list.length + '건 · ' + money(list.reduce((t, d) => t + num(d.amount), 0)) + '원', list);
+}
+
+/* 실주 전용 상세표 — 사유·경쟁사·경쟁 견적·재도전 시점까지 */
+function drillLostDetail(title, sub, list) {
+  list = (list || []).slice().sort((a, b) => String(b.expectedDate).localeCompare(String(a.expectedDate)));
+  const rows = list.map(d =>
+    '<tr style="cursor:pointer" onclick="drillGo(function(){openDrawer(&#39;' + d.id + '&#39;)})">'
+    + '<td>' + fmtDate(d.expectedDate) + '</td>'
+    + '<td class="fw-bold">' + esc(custName(d.custId)) + '</td>'
+    + '<td style="max-width:170px;overflow:hidden;text-overflow:ellipsis">' + esc(d.product) + '</td>'
+    + '<td class="text-end fw-bold">' + comma(d.amount) + '</td>'
+    + '<td>' + esc(trimv(d.lostReason) || '-') + '</td>'
+    + '<td>' + esc(trimv(d.competitor) || '-') + '</td>'
+    + '<td class="text-end">' + (num(d.lostPrice) ? comma(d.lostPrice) : '-') + '</td>'
+    + '<td>' + (d.retryDate ? fmtDate(d.retryDate) : '-') + '</td>'
+    + '<td>' + esc(d.rep || '-') + '</td></tr>');
+  const foot = '<td class="fw-bold">합계</td><td colspan="2">' + list.length + '건</td>'
+    + '<td class="text-end fw-bold">' + comma(list.reduce((t, d) => t + num(d.amount), 0))
+    + '</td><td colspan="5"></td>';
+  openDrill(title, sub,
+    drillTable(['예상일', '고객사', '제품', '딜 금액', '사유', '경쟁사', '경쟁 견적', '재도전', '담당'],
+      rows, list.length ? foot : ''));
+}
+
+/* 재도전 시점이 도래한 실주 딜 — 알림/현황판에서 쓴다 */
+function retryDueDeals() {
+  const t = today();
+  return DB.deals.filter(d => d.stage === '실주' && d.retryDate && d.retryDate <= t);
+}
+
+/* 종합 밴드용 드릴다운 — 조회기간(y/a/b)을 DRL 에 실어 클릭 시점에 다시 계산한다 */
+function drillMixMonth() {
+  const y = DRL.ovY, b = DRL.ovB;
+  drillDeals(y + '년 ' + b + '월 수주', '계약완료 · 예상 수주일 기준', DRL.wonMonth(y, b));
+}
+function drillMixRange() {
+  const y = DRL.ovY, a = DRL.ovA, b = DRL.ovB;
+  drillDeals(y + '년 ' + a + '~' + b + '월 누계 수주', '계약완료 · 예상 수주일 기준', DRL.wonRange(y, a, b));
+}
+function drillMixCat(cat) {
+  const y = DRL.ovY, a = DRL.ovA, b = DRL.ovB;
+  drillDeals(y + '년 ' + a + '~' + b + '월 ' + cat + ' 수주', '분류 ' + cat + ' · 계약완료 기준',
+    DRL.wonRange(y, a, b, cat));
+}
+
 function renderSales() {
   const openD = DB.deals.filter(d => OPEN_STAGES.includes(d.stage));
   const y = new Date().getFullYear();
   const wonY = DB.deals.filter(d => d.stage === '계약완료' && String(d.expectedDate).slice(0, 4) == y);
   const lostY = DB.deals.filter(d => d.stage === '실주' && String(d.expectedDate).slice(0, 4) == y);
-  const kpis = [
-    { l: '열린 딜', v: openD.length + '건', s: money(openD.reduce((s, d) => s + num(d.amount), 0)) + '원', i: 'bi-kanban', c: '#0e7490' },
-    { l: '확률가중 예상', v: money(openD.reduce((s, d) => s + num(d.amount) * num(d.prob) / 100, 0)) + '원', s: '단계 확률 반영', i: 'bi-graph-up', c: '#6366f1' },
-    { l: y + ' 수주', v: money(wonY.reduce((s, d) => s + num(d.amount), 0)) + '원', s: wonY.length + '건', i: 'bi-check-circle', c: '#16a34a' },
-    { l: '성공률', v: (wonY.length + lostY.length ? Math.round(wonY.length / (wonY.length + lostY.length) * 100) : 0) + '%', s: `실주 ${lostY.length}건`, i: 'bi-percent', c: '#ea580c' }
-  ];
-  $('sales-kpi').innerHTML = kpis.map(k => `<div class="col-sm-6 col-lg-3"><div class="kpi-card">
-    <div class="kpi-label"><i class="bi ${k.i}" style="color:${k.c}"></i>${esc(k.l)}</div>
-    <div class="kpi-value">${esc(k.v)}</div><div class="kpi-sub">${esc(k.s)}</div></div></div>`).join('');
+  const openAmt = openD.reduce((t, d) => t + num(d.amount), 0);
+  const wgt = openD.reduce((t, d) => t + num(d.amount) * num(d.prob) / 100, 0);
+  const wonAmt = wonY.reduce((t, d) => t + num(d.amount), 0);
+  const closed = wonY.length + lostY.length;
+  const winRate = closed ? Math.round(wonY.length / closed * 100) : 0;
+  /* 카드 4장으로 나누면 카드마다 여백이 크게 남는다 → 다른 페이지와 같은 문서형 밴드로 통일 */
+  $('sales-kpi').innerHTML = '<div class="col-12"><div class="wt-band mb-0">'
+    + '<div class="wt-hero clickable" onclick="drillDeals(' + Q + '열린 딜 ' + openD.length + '건' + Q + ','
+      + Q + '계약완료·실주를 제외한 진행 중 딜 전체' + Q + ', DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))">'
+      + '<div class="l">열린 딜</div><b>' + money(openAmt) + '원</b>'
+      + '<div class="s">' + openD.length + '건 · 평균 ' + money(openD.length ? openAmt / openD.length : 0) + '원</div></div>'
+    + '<div class="wt-fact clickable" onclick="drillWgt()">'
+      + '<div class="l">확률가중 예상</div><b>' + money(wgt) + '원</b>'
+      + '<div class="s">단계 확률 반영 · ' + (openAmt ? Math.round(wgt / openAmt * 100) : 0) + '%</div></div>'
+    + '<div class="wt-fact clickable" onclick="drillDeals(' + Q + y + ' 수주' + Q + ','
+      + Q + y + '년 계약완료 딜' + Q + ', DB.deals.filter(function(d){return d.stage===' + Q + '계약완료' + Q
+      + ' && String(d.expectedDate).slice(0,4)==' + Q + y + Q + '}))">'
+      + '<div class="l">' + y + ' 수주</div><b class="gr">' + money(wonAmt) + '원</b>'
+      + '<div class="s">' + wonY.length + '건</div></div>'
+    + '<div class="wt-fact clickable" onclick="drillDeals(' + Q + y + ' 실주 ' + lostY.length + '건' + Q + ','
+      + Q + '성공률 ' + winRate + '% · 종결 ' + closed + '건 기준' + Q + ', DB.deals.filter(function(d){return d.stage===' + Q + '실주' + Q
+      + ' && String(d.expectedDate).slice(0,4)==' + Q + y + Q + '}))">'
+      + '<div class="l">수주 성공률</div>'
+      + '<b class="' + (winRate >= 50 ? 'gr' : winRate < 30 ? 'rd' : '') + '">' + winRate + '%</b>'
+      + '<div class="s">종결 ' + closed + '건 중 실주 ' + lostY.length + '건</div></div>'
+    + '</div></div>';
   if (SALES_TAB === 'pipeline') renderPipeline();
   else if (SALES_TAB === 'list') renderDealList();
   else renderLogs();
@@ -1458,6 +1660,12 @@ function openDealModal(id, custId) {
   $('d-next').value = d ? (d.nextAction || '') : '';
   $('d-next-date').value = d ? (d.nextActionDate || '') : '';
   $('d-memo').value = d ? (d.memo || '') : '';
+  $('d-lost-reason').value = d ? (d.lostReason || '') : '';
+  $('d-competitor').value = d ? (d.competitor || '') : '';
+  $('d-lost-price').value = d && num(d.lostPrice) ? comma(d.lostPrice) : '';
+  $('d-retry-date').value = d ? (d.retryDate || '') : '';
+  $('d-lost-memo').value = d ? (d.lostMemo || '') : '';
+  toggleLostBox();
   new bootstrap.Modal($('dealModal')).show();
 }
 function dealProdChange() { dealCalc(); }
@@ -1466,12 +1674,25 @@ function dealCalc() {
   if (!p) return;
   $('d-amount').value = comma(num(p.price) * Math.max(1, num($('d-qty').value)));
 }
-function dealStageChange() { $('d-prob').value = stageOf($('d-stage').value).prob; }
+function dealStageChange() {
+  $('d-prob').value = stageOf($('d-stage').value).prob;
+  toggleLostBox();
+}
+function toggleLostBox() {
+  const on = $('d-stage').value === '실주';
+  $('d-lost-wrap').style.display = on ? 'block' : 'none';
+}
 function saveDeal() {
   if (!trimv($('d-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!trimv($('d-product').value)) return alert('제품을 입력하거나 선택해주세요.');
   const amt = num($('d-amount').value);
   if (!amt) return alert('금액을 입력해주세요.');
+  const isLost = $('d-stage').value === '실주';
+  if (isLost && !trimv($('d-lost-reason').value)) {
+    $('d-lost-wrap').style.display = 'block';
+    $('d-lost-reason').focus();
+    return alert('실주 사유를 선택해주세요. 사유가 없으면 실주 분석을 할 수 없습니다.');
+  }
   const custId = resolveCust($('d-cust').value);
   const code = resolveProd($('d-product').value);
   const p = prodByCode(code);
@@ -1481,7 +1702,13 @@ function saveDeal() {
     qty: num($('d-qty').value) || 1, amount: amt,
     stage: $('d-stage').value, prob: num($('d-prob').value), rep: resolveRep($('d-rep').value),
     expectedDate: $('d-expected').value, nextAction: $('d-next').value.trim(),
-    nextActionDate: $('d-next-date').value, memo: $('d-memo').value.trim()
+    nextActionDate: $('d-next-date').value, memo: $('d-memo').value.trim(),
+    /* 실주가 아니면 이전 실주 기록을 남겨두지 않는다(단계 되돌림 시 유령 데이터 방지) */
+    lostReason: isLost ? trimv($('d-lost-reason').value) : '',
+    competitor: isLost ? trimv($('d-competitor').value) : '',
+    lostPrice: isLost ? num($('d-lost-price').value) : 0,
+    retryDate: isLost ? $('d-retry-date').value : '',
+    lostMemo: isLost ? trimv($('d-lost-memo').value) : ''
   };
   if (id) {
     const d = DB.deals.find(x => x.id === id);
@@ -2072,11 +2299,16 @@ function renderQuotes() {
   const tot = all.reduce((s, x) => s + quoteCalc(x.items).total, 0);
   const sent = all.filter(x => x.status === '발송');
   const wonQ = all.filter(x => x.status === '수주');
+  const lostQ = all.filter(x => x.status === '실주');
   $('quote-band').innerHTML = `
-    <div class="wt-hero"><div class="l">견적 총액 (VAT 포함)</div><b>${money(tot)}원</b><div class="s">전체 ${all.length}건</div></div>
-    <div class="wt-fact"><div class="l">발송 대기·진행</div><b>${sent.length}</b><div class="s">${money(sent.reduce((s, x) => s + quoteCalc(x.items).total, 0))}원</div></div>
-    <div class="wt-fact"><div class="l">수주 전환</div><b class="gr">${wonQ.length}</b><div class="s">${money(wonQ.reduce((s, x) => s + quoteCalc(x.items).total, 0))}원</div></div>
-    <div class="wt-fact"><div class="l">견적 성공률</div><b>${(wonQ.length + all.filter(x => x.status === '실주').length) ? Math.round(wonQ.length / (wonQ.length + all.filter(x => x.status === '실주').length) * 100) : 0}%</b><div class="s">수주/종결 기준</div></div>`;
+    <div class="wt-hero clickable" onclick="drillQuotes('견적 전체','VAT 포함 총액 ${money(tot)}원',DB.quotes)">
+      <div class="l">견적 총액 (VAT 포함)</div><b>${money(tot)}원</b><div class="s">전체 ${all.length}건</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('발송 대기·진행 견적','아직 종결되지 않은 견적',DB.quotes.filter(function(x){return x.status!=='수주'&&x.status!=='실주'}))">
+      <div class="l">발송 대기·진행</div><b>${sent.length}</b><div class="s">${money(sent.reduce((s, x) => s + quoteCalc(x.items).total, 0))}원</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('수주 전환 견적','상태가 수주인 견적',DB.quotes.filter(function(x){return x.status==='수주'}))">
+      <div class="l">수주 전환</div><b class="gr">${wonQ.length}</b><div class="s">${money(wonQ.reduce((s, x) => s + quoteCalc(x.items).total, 0))}원</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('실주 견적','성공률 ${(wonQ.length + lostQ.length) ? Math.round(wonQ.length / (wonQ.length + lostQ.length) * 100) : 0}% · 종결 ${wonQ.length + lostQ.length}건 기준',DB.quotes.filter(function(x){return x.status==='실주'}))">
+      <div class="l">견적 성공률</div><b>${(wonQ.length + lostQ.length) ? Math.round(wonQ.length / (wonQ.length + lostQ.length) * 100) : 0}%</b><div class="s">수주/종결 기준</div></div>`;
 
   const rows = all.filter(x => {
     if (st && x.status !== st) return false;
@@ -2318,12 +2550,17 @@ function renderCustomers() {
   const gradeCnt = ['A','B','C','D'].map(x => all.filter(c => c.grade === x).length);
   const totalWon = DB.deals.filter(d => d.stage === '계약완료').reduce((s, d) => s + num(d.amount), 0);
   $('cust-band').innerHTML = `
-    <div class="wt-hero"><div class="l">전체 고객사</div><b>${all.length}곳</b>
+    <div class="wt-hero clickable" onclick="drillCusts('전체 고객사','누적 수주 ${money(totalWon)}원',DB.customers)">
+      <div class="l">전체 고객사</div><b>${all.length}곳</b>
       <div class="s">누적 수주 ${money(totalWon)}원</div></div>
-    <div class="wt-fact"><div class="l">A등급</div><b>${gradeCnt[0]}</b><div class="s">핵심 관리</div></div>
-    <div class="wt-fact"><div class="l">B / C등급</div><b>${gradeCnt[1]} / ${gradeCnt[2]}</b><div class="s">성장·유지</div></div>
-    <div class="wt-fact"><div class="l">장비 보유</div><b>${new Set(DB.equipments.map(e => e.custId)).size}곳</b><div class="s">설치 ${DB.equipments.length}대</div></div>
-    <div class="wt-fact"><div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">상담일지 기준</div></div>`;
+    <div class="wt-fact clickable" onclick="drillCusts('A등급 고객사','핵심 관리 대상',DB.customers.filter(function(c){return c.grade==='A'}))">
+      <div class="l">A등급</div><b>${gradeCnt[0]}</b><div class="s">핵심 관리</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('B · C등급 고객사','성장·유지 대상',DB.customers.filter(function(c){return c.grade==='B'||c.grade==='C'}))">
+      <div class="l">B / C등급</div><b>${gradeCnt[1]} / ${gradeCnt[2]}</b><div class="s">성장·유지</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('장비 보유 고객사','설치 장비가 1대 이상인 고객사',DB.customers.filter(function(c){return DB.equipments.some(function(e){return e.custId===c.id})}))">
+      <div class="l">장비 보유</div><b>${new Set(DB.equipments.map(e => e.custId)).size}곳</b><div class="s">설치 ${DB.equipments.length}대</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('30일 내 접촉 고객사','최근 30일 상담일지가 있는 고객사',DB.customers.filter(function(c){return DB.logs.some(function(l){return l.custId===c.id&&(-dDays(l.date))<=30})}))">
+      <div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">상담일지 기준</div></div>`;
 
   const tags = [...new Set(all.flatMap(c => (c.tags || []).map(t => String(t).trim()).filter(Boolean)))];
   $('c-tagbar').innerHTML = tags.length ? `<span class="pipe-chip ${C_TAG ? '' : 'on'}" onclick="setCTag('')">전체</span>`
@@ -2451,7 +2688,7 @@ function saveCust() {
     zip: $('c-zip').value.trim(), addr: $('c-addr').value.trim(), addr2: $('c-addr2').value.trim(),
     contacts: readContacts(),
     tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim(),
-    updatedAt: today(), updatedBy: (ME && (ME.display_name || ME.email)) || '' };
+    updatedAt: today(), updatedBy: curUserName() };
   const id = $('c-id').value;
   if (id) Object.assign(custById(id), row);
   else DB.customers.push(Object.assign({ id: uid(), createdAt: today() }, row));
@@ -2470,6 +2707,192 @@ function deleteCust() {
 
 /* ── 고객사 상세 ── */
 let CD_ID = null, CD_TAB = 'info';
+/* ══════════════════════════════════════════════════════════════
+   중복 고객사 탐지 · 병합
+   고객사는 어디서나 직접 입력으로 자동 등록되므로, 표기 차이 하나로
+   같은 병원이 둘로 갈라지고 매출·이력도 함께 갈라진다. 여기서 잡는다.
+   ══════════════════════════════════════════════════════════════ */
+
+/* 비교용 정규화 — 공백/괄호/법인표기 제거 + 과명 표기 변화 통일 */
+function normName(v) {
+  let x = String(v == null ? '' : v).toLowerCase();
+  x = x.replace(/[\s()（）·.,\-_/]/g, '');
+  x = x.replace(/주식회사|㈜|의료법인|재단법인|사단법인/g, '');
+  /* 2020년 과명 변경: 비뇨기과 → 비뇨의학과. 같은 병원이 두 표기로 들어온다 */
+  x = x.replace(/비뇨기과/g, '비뇨의학과');
+  x = x.replace(/의원$|병원$|클리닉$|센터$/g, '');
+  return x;
+}
+
+/* 편집거리 — 오타 1~2글자 차이를 잡기 위한 최소 구현 */
+function editDist(a, b) {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/* 중복 후보 그룹 산출. 판정 근거(why)를 함께 돌려줘 사용자가 오판하지 않게 한다 */
+function findDupGroups() {
+  const cs = DB.customers.map(c => ({ c, k: normName(c.name) })).filter(x => x.k);
+  const used = {};
+  const groups = [];
+  for (let i = 0; i < cs.length; i++) {
+    if (used[cs[i].c.id]) continue;
+    const members = [cs[i]];
+    let why = '';
+    for (let j = i + 1; j < cs.length; j++) {
+      if (used[cs[j].c.id]) continue;
+      const a = cs[i].k, b = cs[j].k;
+      let hit = '';
+      if (a === b) hit = '표기만 다른 동일 이름';
+      else if (a.length >= 4 && b.length >= 4 && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)) hit = '한쪽이 다른 쪽을 포함';
+      else if (Math.min(a.length, b.length) >= 5 && editDist(a, b) <= 2) hit = '오타 추정 (' + editDist(a, b) + '글자 차이)';
+      /* 같은 전화번호는 이름이 달라도 사실상 같은 곳일 확률이 높다 */
+      else if (digitsOnly(cs[i].c.phone) && digitsOnly(cs[i].c.phone) === digitsOnly(cs[j].c.phone)) hit = '대표 전화 동일';
+      if (hit) {
+        members.push(cs[j]);
+        used[cs[j].c.id] = 1;
+        if (!why) why = hit;
+      }
+    }
+    if (members.length > 1) {
+      used[cs[i].c.id] = 1;
+      groups.push({ why, members: members.map(m => m.c) });
+    }
+  }
+  return groups;
+}
+
+/* 고객사가 실제로 얼마나 쓰이고 있는지 — 대표를 고를 판단 근거 */
+function custUsage(id) {
+  return {
+    deals: DB.deals.filter(d => d.custId === id).length,
+    logs: DB.logs.filter(l => l.custId === id).length,
+    sch: DB.schedules.filter(x => x.custId === id).length,
+    equip: DB.equipments.filter(e => e.custId === id).length,
+    quotes: DB.quotes.filter(q => q.custId === id).length,
+    won: custWonAmount(id)
+  };
+}
+const usageTotal = u => u.deals + u.logs + u.sch + u.equip + u.quotes;
+
+function openDupModal() {
+  renderDupBody();
+  new bootstrap.Modal($('dupModal')).show();
+}
+
+function renderDupBody() {
+  const groups = findDupGroups();
+  $('dup-sub').textContent = groups.length
+    ? '중복 후보 ' + groups.length + '건 — 남길 고객사를 고르고 병합하세요'
+    : '중복 후보가 없습니다';
+  if (!groups.length) {
+    $('dup-body').innerHTML = '<div class="ana-empty" style="padding:44px 0">'
+      + '<i class="bi bi-check-circle" style="font-size:26px;color:#16a34a"></i>'
+      + '<div class="mt-2">중복으로 의심되는 고객사가 없습니다</div>'
+      + '<span>이름 표기 차이 · 오타(2글자 이내) · 대표 전화 동일을 검사했습니다</span></div>';
+    return;
+  }
+  $('dup-body').innerHTML = groups.map((g, gi) => {
+    const rows = g.members.map((c, mi) => {
+      const u = custUsage(c.id);
+      return '<tr>'
+        + '<td class="text-center"><input type="radio" name="dupk' + gi + '" value="' + esc(c.id) + '"'
+          + (mi === 0 ? ' checked' : '') + '></td>'
+        + '<td class="fw-bold">' + esc(c.name)
+          + (c.auto ? ' <span class="dup-auto">자동등록</span>' : '') + '</td>'
+        + '<td>' + esc(c.type || '-') + '</td>'
+        + '<td>' + esc(c.doctor || '-') + '</td>'
+        + '<td>' + esc(((c.sido || '') + ' ' + (c.gugun || '')).trim() || '-') + '</td>'
+        + '<td>' + esc(c.phone || '-') + '</td>'
+        + '<td class="text-center">' + esc(c.grade || '-') + '</td>'
+        + '<td class="text-end fw-bold">' + comma(u.won) + '</td>'
+        + '<td class="dup-u">딜 ' + u.deals + ' · 일정 ' + u.sch + ' · 일지 ' + u.logs
+          + ' · 장비 ' + u.equip + ' · 견적 ' + u.quotes + '</td>'
+        + '<td>' + fmtDate(c.createdAt) + '</td></tr>';
+    }).join('');
+    /* 사용량이 가장 많은 쪽을 기본 대표로 추천 */
+    const best = g.members.slice().sort((a, b) => usageTotal(custUsage(b.id)) - usageTotal(custUsage(a.id)))[0];
+    return '<div class="dup-grp">'
+      + '<div class="dup-h"><b>후보 ' + (gi + 1) + '</b>'
+        + '<span class="dup-why">' + esc(g.why) + '</span>'
+        + '<span class="dup-rec">추천 대표: ' + esc(best.name) + '</span>'
+        + '<button class="btn btn-sm btn-warning ms-auto" onclick="mergeDupGroup(' + gi + ')">'
+        + '<i class="bi bi-intersect me-1"></i>선택한 쪽으로 병합</button></div>'
+      + '<div style="overflow-x:auto"><table class="table table-sm mb-0 dup-t">'
+      + '<thead><tr><th class="text-center">대표</th><th>고객사명</th><th>구분</th><th>원장</th>'
+      + '<th>지역</th><th>전화</th><th class="text-center">등급</th><th class="text-end">누적수주</th>'
+      + '<th>사용량</th><th>등록일</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + '<input type="hidden" id="dupids' + gi + '" value="' + esc(g.members.map(m => m.id).join(',')) + '"></div>';
+  }).join('');
+}
+
+function mergeDupGroup(gi) {
+  if (!ensureAdmin()) return;
+  const ids = ($('dupids' + gi).value || '').split(',').filter(Boolean);
+  const picked = document.querySelector('input[name="dupk' + gi + '"]:checked');
+  if (!picked) return alert('남길 대표 고객사를 선택해주세요.');
+  const keepId = picked.value;
+  const dropIds = ids.filter(x => x !== keepId);
+  if (!dropIds.length) return alert('병합할 대상이 없습니다.');
+  const keep = custById(keepId);
+  if (!keep) return;
+  const dropNames = dropIds.map(id => (custById(id) || {}).name).filter(Boolean);
+  if (!confirm('[' + dropNames.join(', ') + '] 을(를) [' + keep.name + '] 로 병합합니다.\n'
+    + '딜 · 일정 · 상담일지 · 장비 · 견적이 모두 옮겨지고 병합된 고객사는 삭제됩니다. 되돌릴 수 없습니다.\n\n계속할까요?')) return;
+  const moved = mergeCustomers(keepId, dropIds);
+  save();
+  renderDupBody();
+  if (CUR_PAGE === 'customers') renderCustomers();
+  refreshDatalists();
+  toast('병합 완료 — ' + moved + '건의 기록을 ' + keep.name + ' 로 이동');
+}
+
+/* 실제 병합. 참조를 옮기고, 대표의 빈 항목만 채우고, 연락처·태그는 합친다 */
+function mergeCustomers(keepId, dropIds) {
+  const keep = custById(keepId);
+  if (!keep || !dropIds.length) return 0;
+  let moved = 0;
+  ['deals', 'logs', 'schedules', 'equipments', 'quotes'].forEach(t => {
+    (DB[t] || []).forEach(r => {
+      if (dropIds.indexOf(r.custId) >= 0) { r.custId = keepId; moved++; }
+    });
+  });
+  dropIds.forEach(id => {
+    const d = custById(id);
+    if (!d) return;
+    /* 대표에 비어 있는 항목만 보충 — 대표의 값을 덮어쓰지 않는다 */
+    ['type', 'doctor', 'dept', 'sido', 'gugun', 'phone', 'zip', 'addr', 'addr2', 'rep'].forEach(f => {
+      if (!trimv(keep[f]) && trimv(d[f])) keep[f] = d[f];
+    });
+    /* 등급은 더 높은 쪽(A가 최상)을 남긴다 */
+    if (trimv(d.grade) && (!trimv(keep.grade) || d.grade < keep.grade)) keep.grade = d.grade;
+    keep.tags = [...new Set([...(keep.tags || []), ...(d.tags || [])])];
+    const seen = {};
+    keep.contacts = [...(keep.contacts || []), ...(d.contacts || [])].filter(x => {
+      const k = trimv(x.name) + '|' + digitsOnly(x.phone);
+      if (k === '|' || seen[k]) return false;
+      seen[k] = 1;
+      return true;
+    });
+    if (trimv(d.memo)) keep.memo = (trimv(keep.memo) ? keep.memo + '\n' : '') + '[' + d.name + '] ' + d.memo;
+    /* 병합 흔적을 남긴다 — 나중에 "왜 이 이름이 없지" 를 추적할 수 있게 */
+    keep.mergedFrom = [...new Set([...(keep.mergedFrom || []), d.name])];
+  });
+  keep.updatedAt = today();
+  keep.updatedBy = curUserName();
+  DB.customers = DB.customers.filter(c => dropIds.indexOf(c.id) < 0);
+  return moved;
+}
+
 function openCustDetail(id) {
   const c = custById(id); if (!c) return;
   CD_ID = id; CD_TAB = 'info';
@@ -2582,12 +3005,17 @@ function renderEquip() {
   const soon = all.filter(e => { const n = dDays(e.warrantyEnd); return n != null && n >= 0 && n <= 90; });
   const expired = all.filter(e => { const n = dDays(e.warrantyEnd); return n != null && n < 0; });
   $('equip-band').innerHTML = `
-    <div class="wt-hero"><div class="l">설치 장비 (Installed Base)</div><b>${all.length}대</b>
+    <div class="wt-hero clickable" onclick="drillEquip('설치 장비 전체','${new Set(all.map(e => e.custId)).size}개 고객사에 ${all.length}대',DB.equipments)">
+      <div class="l">설치 장비 (Installed Base)</div><b>${all.length}대</b>
       <div class="s">${new Set(all.map(e => e.custId)).size}개 고객사</div></div>
-    <div class="wt-fact"><div class="l">보증 90일 내 만료</div><b class="${soon.length ? 'rd' : ''}">${soon.length}</b><div class="s">유지보수 영업 기회</div></div>
-    <div class="wt-fact"><div class="l">보증 만료</div><b>${expired.length}</b><div class="s">UL-CARE 제안 대상</div></div>
-    <div class="wt-fact"><div class="l">수리중</div><b class="${all.filter(e => e.status === '수리중').length ? 'rd' : ''}">${all.filter(e => e.status === '수리중').length}</b><div class="s">A/S 진행</div></div>
-    <div class="wt-fact"><div class="l">A/S 누적</div><b>${all.reduce((s, e) => s + (e.as || []).length, 0)}회</b><div class="s">이력 기준</div></div>`;
+    <div class="wt-fact clickable" onclick="drillEquip('보증 90일 내 만료','유지보수 계약 제안 대상',DB.equipments.filter(function(e){var n=dDays(e.warrantyEnd);return n!=null&&n>=0&&n<=90}))">
+      <div class="l">보증 90일 내 만료</div><b class="${soon.length ? 'rd' : ''}">${soon.length}</b><div class="s">유지보수 영업 기회</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('보증 만료 장비','UL-CARE 제안 대상',DB.equipments.filter(function(e){var n=dDays(e.warrantyEnd);return n!=null&&n<0}))">
+      <div class="l">보증 만료</div><b>${expired.length}</b><div class="s">UL-CARE 제안 대상</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('수리중 장비','A/S 진행 중',DB.equipments.filter(function(e){return e.status==='수리중'}))">
+      <div class="l">수리중</div><b class="${all.filter(e => e.status === '수리중').length ? 'rd' : ''}">${all.filter(e => e.status === '수리중').length}</b><div class="s">A/S 진행</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('A/S 이력 있는 장비','누적 ${all.reduce((s, e) => s + (e.as || []).length, 0)}회',DB.equipments.filter(function(e){return (e.as||[]).length>0}))">
+      <div class="l">A/S 누적</div><b>${all.reduce((s, e) => s + (e.as || []).length, 0)}회</b><div class="s">이력 기준</div></div>`;
 
   const rows = all.filter(e => {
     if (st && e.status !== st) return false;
@@ -2891,18 +3319,12 @@ function renderAnalysis() {
           }).join('')}
           <div style="font-size:11.5px;color:#94a3b8;margin-top:8px">오른쪽 수치 = 직전 단계 대비 전환율(실주 제외, 전체 딜 기준)</div>
         </div></div>
-        <div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">실주 분석</div>
-          ${(() => {
-            const lost = all.filter(d => d.stage === '실주');
-            if (!lost.length) return '<div style="color:#94a3b8;font-size:13px;padding:20px 0;text-align:center">실주 딜이 없습니다</div>';
-            const byRep = {};
-            lost.forEach(d => { byRep[d.rep || '미지정'] = (byRep[d.rep || '미지정'] || 0) + num(d.amount); });
-            return `<div class="mb-2" style="font-size:13px">실주 <b>${lost.length}건</b> · <b>${money(lost.reduce((s, d) => s + num(d.amount), 0))}원</b></div>`
-              + Object.entries(byRep).sort((x, y2) => y2[1] - x[1]).map(([k, v]) =>
-                `<div class="d-flex justify-content-between" style="padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px">
-                  <span>${esc(k)}</span><strong>${won(v)}</strong></div>`).join('');
-          })()}
-        </div></div>
+        <div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">실주 사유</div>
+          ${lostBreakdown('lostReason', '사유 미기록')}</div></div>
+        <div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">담당자별 실주</div>
+          ${lostBreakdown('rep', '미지정')}</div></div>
+        <div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">경쟁사별 승패</div>
+          ${compWinTable()}</div></div>
         <div class="col-12">${tbl(['기간 요약','값'], [
           `<td>기간 내 예상 수주일 딜</td><td class="text-end fw-bold">${inP.length}건 · ${won(inP.reduce((s, d) => s + num(d.amount), 0))}</td>`,
           `<td>계약완료</td><td class="text-end fw-bold text-success">${wonD.length}건 · ${won(wonD.reduce((s, d) => s + num(d.amount), 0))}</td>`,

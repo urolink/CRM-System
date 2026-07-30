@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260730r" rel="stylesheet">
-<script src="config.js?v=20260730r"></script>
+<link href="app.css?v=20260730s" rel="stylesheet">
+<script src="config.js?v=20260730s"></script>
 </head>
 <body>
 
@@ -404,6 +404,7 @@
     <div class="wt-mast">
       <div><div class="kick">UROLINK ACCOUNTS</div><div class="t"><i class="bi bi-hospital me-2"></i>고객사</div></div>
       <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-warning btn-sm" onclick="openDupModal()" id="dup-btn"><i class="bi bi-intersect me-1"></i>중복 검사</button>
         <button class="btn btn-outline-secondary btn-sm" onclick="exportCustomers()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
         <button class="btn btn-primary btn-sm" onclick="openCustModal()"><i class="bi bi-plus-lg me-1"></i>고객사 추가</button>
       </div>
@@ -543,6 +544,27 @@
       <div class="col-md-6"><label class="form-label">예상 수주일</label><input type="date" class="form-control" id="d-expected"></div>
       <div class="col-md-6"><label class="form-label">다음 액션</label><input type="text" class="form-control" id="d-next" placeholder="예: 원장 미팅 · 데모 일정 확정"></div>
       <div class="col-md-6"><label class="form-label">다음 액션 예정일</label><input type="date" class="form-control" id="d-next-date"></div>
+      <!-- 실주일 때만 열리는 블록 — 왜 졌는지가 남지 않으면 실주 분석이 담당자별 금액 나열로 끝난다 -->
+      <div class="col-12" id="d-lost-wrap" style="display:none">
+        <div class="lost-box">
+          <div class="lost-t"><i class="bi bi-exclamation-triangle me-1"></i>실주 기록 <span>· 사유는 필수입니다</span></div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">실주 사유 *</label>
+              <select class="form-select" id="d-lost-reason"></select></div>
+            <div class="col-md-6"><label class="form-label">경쟁사 (수주한 곳)</label>
+              <input type="text" class="form-control" id="d-competitor" list="dl-comp"
+                placeholder="경쟁사명 입력 · 선택 (모르면 비움)" autocomplete="off"></div>
+            <div class="col-md-6"><label class="form-label">경쟁사 견적가(원)</label>
+              <input type="text" class="form-control" id="d-lost-price" inputmode="numeric" oninput="commaInput(this)"
+                placeholder="파악된 경우만"></div>
+            <div class="col-md-6"><label class="form-label">재도전 가능 시점</label>
+              <input type="date" class="form-control" id="d-retry-date"></div>
+            <div class="col-12"><label class="form-label">상세 경위</label>
+              <textarea class="form-control" id="d-lost-memo" rows="2"
+                placeholder="예: 원장은 우리 스펙 선호했으나 원내 구매팀이 기존 거래처 단가 조건을 우선. 리스 조건으로 재제안 여지 있음."></textarea></div>
+          </div>
+        </div>
+      </div>
       <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="d-memo" rows="2"></textarea></div>
     </div>
   </div>
@@ -554,6 +576,23 @@
 </div></div></div>
 
 <!-- ══════════ 모달: 상세내역 조회 (드릴다운) ══════════ -->
+<!-- ══════════ 모달: 중복 고객사 검사·병합 ══════════ -->
+<div class="modal fade" id="dupModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header">
+    <div>
+      <h5 class="modal-title"><i class="bi bi-intersect me-2"></i>중복 고객사 검사</h5>
+      <div style="font-size:12px;color:#64748b;margin-top:2px" id="dup-sub"></div>
+    </div>
+    <button class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body" id="dup-body"></div>
+  <div class="modal-footer">
+    <span style="font-size:11.5px;color:#94a3b8;margin-right:auto">
+      병합하면 딜 · 일정 · 상담일지 · 장비 · 견적이 모두 대표 고객사로 옮겨집니다. 되돌릴 수 없습니다.</span>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+  </div>
+</div></div></div>
+
 <div class="modal fade" id="drillModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
   <div class="modal-header">
     <div>
@@ -1038,6 +1077,7 @@
 <datalist id="dl-cust"></datalist>
 <datalist id="dl-prod"></datalist>
 <datalist id="dl-rep"></datalist>
+<datalist id="dl-comp"></datalist>
 
 <div class="saving-toast" id="toast"><i class="bi bi-check-circle-fill" style="color:#34d399"></i><span id="toast-msg">저장되었습니다</span></div>
 
@@ -1050,6 +1090,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260730r"></script>
+<script src="app.js?v=20260730s"></script>
 </body>
 </html>
