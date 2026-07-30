@@ -237,6 +237,18 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .im-b.dup{background:#fff7ed;color:#ea580c}
 .im-b.err{background:#fef2f2;color:#dc2626}
 
+/* 현황판: 카드 하단 공백을 채우는 정체 딜 목록
+   (.card 는 부트스트랩이 이미 flex-column 이라 mt-auto 가 동작한다) */
+#db-stale{border-top:1px solid #f3f4f6}
+.st-t{font-size:11px;font-weight:800;color:#64748b;margin:6px 0 4px}
+.st-r{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border-radius:6px;
+  cursor:pointer;transition:background .12s}
+.st-r:hover{background:#f6f9fb}
+.st-n{flex:1;min-width:0;font-weight:700;color:#182230;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-s{font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.st-d{font-size:11.5px;font-weight:800;color:#ea580c;font-variant-numeric:tabular-nums;white-space:nowrap}
+.st-e{font-size:11.5px;color:#cbd5e1;padding:6px 0}
+
 /* ══ 문서형 KPI 밴드 (원텍 한국영업 .cdud 이식) ══ */
 .cdud{--ink:#182230;--mut:#64748b;--line:#e4e8ef;--navy:#16324f;--acc:#0e7490;--rd:#dc2626;--grn:#15803d;
   background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px 34px 32px;letter-spacing:-.01em}
@@ -353,8 +365,9 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 /* 컬럼이 남는 폭을 다 나눠 가지면 카드 한 장에 400px 이 배정돼 텅 비어 보인다.
    그리드로 컬럼 폭에 상한을 두고, 화면이 넓으면 컬럼을 넓히는 대신 여백을 남긴다. */
 .pipeline-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(178px,1fr);gap:10px;
-  overflow-x:auto;padding-bottom:6px;align-items:stretch;max-width:1180px}
-.pipeline-col{min-width:0;background:#f9fafb;border-radius:10px;padding:9px;border:1px solid var(--border);transition:background .15s,border-color .15s}
+  overflow-x:auto;padding-bottom:6px;align-items:start}
+.pipeline-col{min-width:0;background:#f9fafb;border-radius:10px;padding:9px;border:1px solid var(--border);
+  transition:background .15s,border-color .15s;min-height:88px}
 .pipeline-col.drag-over{background:#e0f4f9;border-color:var(--blue);border-style:dashed}
 .pipeline-col-header{font-size:11px;font-weight:800;margin-bottom:8px;display:flex;justify-content:space-between;
   align-items:center;gap:5px;letter-spacing:.02em;padding-bottom:6px;border-bottom:1px solid #e8edf3}

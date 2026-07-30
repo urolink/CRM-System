@@ -3,5 +3,4 @@ Thumbs.db
 
 # 검증용 임시 산출물
 h.js
-_band.html
-_users.html
+_*.html

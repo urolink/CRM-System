@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730x';
+const APP_VERSION = '20260730y';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -821,6 +821,21 @@ function renderDashboard() {
   }).join('');
   $('db-funnel-sum').innerHTML = `<div class="d-flex justify-content-between" style="font-size:12px">
     <span style="color:#64748b;font-weight:600">열린 딜 합계</span><strong>${won(openAmt)}</strong></div>`;
+
+  /* 오래 머문 딜 — 카드 하단 공백을 채우면서, 파이프라인에서 실제로 봐야 할 것을 보여준다 */
+  const stale = openD.slice()
+    .map(d => ({ d, days: d.createdAt ? dayDiff(d.createdAt, today()) : null }))
+    .filter(x => x.days != null)
+    .sort((a, b) => b.days - a.days)
+    .slice(0, 3);
+  $('db-stale').innerHTML = stale.length
+    ? '<div class="st-t">오래 머문 딜</div>'
+      + stale.map(x =>
+          '<div class="st-r" onclick="openDrawer(&#39;' + x.d.id + '&#39;)">'
+          + '<span class="st-n">' + esc(custName(x.d.custId)) + '</span>'
+          + '<span class="st-s">' + esc(x.d.stage) + '</span>'
+          + '<span class="st-d">' + x.days + '일</span></div>').join('')
+    : '<div class="st-t">오래 머문 딜</div><div class="st-e">진행 중인 딜이 없습니다</div>';
 
   /* 매출 전망 바 */
   const tot = wonAmt + wgt;

@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260730x" rel="stylesheet">
-<script src="config.js?v=20260730x"></script>
+<link href="app.css?v=20260730y" rel="stylesheet">
+<script src="config.js?v=20260730y"></script>
 </head>
 <body>
 
@@ -237,6 +237,8 @@
           <div class="wt-st">파이프라인 단계</div>
           <div id="db-funnel"></div>
           <div id="db-funnel-sum" class="mt-2 pt-2" style="border-top:1px solid #f3f4f6"></div>
+          <!-- 옆 차트 높이에 맞춰 카드가 늘어나므로 아래가 비지 않도록 정체 딜을 채운다 -->
+          <div id="db-stale" class="mt-auto pt-2"></div>
         </div>
       </div>
     </div>
@@ -1160,6 +1162,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260730x"></script>
+<script src="app.js?v=20260730y"></script>
 </body>
 </html>
