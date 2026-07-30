@@ -48,6 +48,12 @@ $$;
 
 -- 일반 사용자가 스스로 role 을 admin 으로 바꾸는 것을 차단
 -- (RLS 는 컬럼 단위 제한이 안 되므로 트리거로 막습니다)
+--
+-- ⚠ auth.uid() is not null 조건이 반드시 필요합니다.
+--   대시보드 SQL Editor / service_role 로 실행할 때는 auth.uid() 가 NULL 이라
+--   이 조건이 없으면 ul_is_admin() 이 false 가 되어 **첫 관리자를 지정할 방법이 없어집니다**.
+--   익명(anon) 요청은 아래 ul_prof_update 정책이 to authenticated 로 이미 차단하므로,
+--   NULL 을 통과시켜도 안전합니다.
 create or replace function ul_guard_role()
 returns trigger
 language plpgsql
@@ -55,7 +61,9 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.role is distinct from old.role and not ul_is_admin() then
+  if new.role is distinct from old.role
+     and auth.uid() is not null        -- 대시보드/service_role 컨텍스트는 통과
+     and not ul_is_admin() then
     raise exception '역할 변경 권한이 없습니다';
   end if;
   return new;
