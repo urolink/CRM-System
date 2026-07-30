@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730m';
+const APP_VERSION = '20260730n';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -35,6 +35,7 @@ const comma = n => num(n).toLocaleString('ko-KR');
 function money(n) {
   n = num(n);
   const s = n < 0 ? '-' : ''; n = Math.abs(n);
+  if (n >= 1000000000000) return s + (n / 1000000000000).toFixed(1).replace(/\.0$/, '') + '조';
   if (n >= 100000000) return s + (n / 100000000).toFixed(n >= 1000000000 ? 0 : 1).replace(/\.0$/, '') + '억';
   if (n >= 10000)     return s + Math.round(n / 10000).toLocaleString('ko-KR') + '만';
   return s + n.toLocaleString('ko-KR');
@@ -118,8 +119,14 @@ function fixShape() {
   const b = blankDB();
   Object.keys(b).forEach(k => { if (DB[k] == null) DB[k] = b[k]; });
   if (!DB.meta) DB.meta = b.meta;
-  /* 단계 개편(리드발굴 폐지) 이전 데이터 이관 — 없는 단계면 칸반에서 사라지므로 */
-  (DB.deals || []).forEach(d => { if (d.stage === '상담중') { d.stage = '상담중'; d.prob = 25; } });
+  /* 단계 개편(리드발굴 폐지) 이전 데이터 이관 — 없는 단계면 칸반에서 사라지므로.
+     ⚠ 조건은 반드시 '리드발굴' 이어야 한다. '상담중' 으로 두면 매 로드마다
+        상담중 딜의 확률이 25 로 되돌아가 사용자가 조정한 값이 사라진다. */
+  (DB.deals || []).forEach(d => { if (d.stage === '리드발굴') { d.stage = '상담중'; d.prob = 25; } });
+  /* 분류(cat) 미기록 딜 보정 — 제품이 나중에 삭제돼도 장비/소모품 구분이 유지되도록 */
+  (DB.deals || []).forEach(d => {
+    if (!d.cat) { const p = prodByCode(d.productCode); if (p) d.cat = p.cat; }
+  });
 }
 const isEmptyDB = () => Object.keys(TABLES).every(k => !(DB[k] || []).length);
 /* 샘플 데이터 존재 여부 — meta 플래그는 브라우저별이라, 시드된 실제 행으로 판별(서버 공유 시에도 정확) */
@@ -323,7 +330,7 @@ function seed() {
   ];
   DB.deals = DL.map((r, i) => {
     const p = DB.products.find(x => x.code === r[1]);
-    return { id: 'd' + (i + 1), custId: r[0], product: p ? p.name : r[1], productCode: r[1],
+    return { id: 'd' + (i + 1), custId: r[0], product: p ? p.name : r[1], productCode: r[1], cat: p ? p.cat : '장비',
              qty: 1, amount: r[2], stage: r[3], prob: stageOf(r[3]).prob, expectedDate: r[4],
              rep: r[5], nextAction: r[6], nextActionDate: r[7], memo: '', createdAt: dm(-2, 1),
              closedAt: (r[3] === '계약완료' || r[3] === '실주') ? r[4] : '' };
@@ -346,7 +353,7 @@ function seed() {
   PREV.forEach((r, i) => {
     const p = DB.products.find(x => x.code === r[1]);
     const dt = PY + '-' + pad(r[3]) + '-15';
-    DB.deals.push({ id: 'p' + (i + 1), custId: r[0], productCode: r[1], product: p ? p.name : r[1],
+    DB.deals.push({ id: 'p' + (i + 1), custId: r[0], productCode: r[1], product: p ? p.name : r[1], cat: p ? p.cat : '장비',
       qty: 1, amount: r[2], stage: '계약완료', prob: 100, expectedDate: dt, rep: r[4],
       nextAction: '', nextActionDate: '', memo: '', createdAt: PY + '-' + pad(r[3]) + '-01', closedAt: dt });
   });
@@ -779,6 +786,15 @@ function renderDashboard() {
 
 /* ═══════════════ 6b. 종합 · 장비/소모품 매출 (원텍 한국영업 레이아웃 이식) ═══════════════ */
 /* 제품 분류를 장비 / 소모품 2분할로 환원 (액세서리·서비스는 소모품에 합산) */
+/* 딜의 장비/소모품 분류.
+   제품이 삭제되면 prodByCode 가 비어 전부 '소모품' 으로 오분류되던 버그가 있어,
+   저장 시 딜에 함께 기록한 d.cat 을 폴백으로 사용한다. */
+function dealCat(d) {
+  const p = prodByCode(d && d.productCode);
+  const c = p ? p.cat : (d && d.cat);
+  return c === '장비' ? '장비' : '소모품';
+}
+/* 코드만 아는 자리용 (제품이 살아있을 때만 정확) */
 const CAT2 = code => ((prodByCode(code) || {}).cat === '장비' ? '장비' : '소모품');
 const WON_DEALS = () => DB.deals.filter(d => d.stage === '계약완료');
 
@@ -786,7 +802,7 @@ function mSum(year, m, cat) {
   return WON_DEALS().reduce((t, d) => {
     const s = String(d.expectedDate || '');
     if (num(s.slice(0, 4)) !== year || num(s.slice(5, 7)) !== m) return t;
-    if (cat && CAT2(d.productCode) !== cat) return t;
+    if (cat && dealCat(d) !== cat) return t;
     return t + num(d.amount);
   }, 0);
 }
@@ -903,7 +919,7 @@ function renderOverview() {
     const acc = {};
     WON_DEALS().forEach(d => {
       if (!inRange(d.expectedDate, y + '-' + pad(a) + '-01', ymd(new Date(y, b, 0)))) return;
-      if (CAT2(d.productCode) !== cat) return;
+      if (dealCat(d) !== cat) return;
       const k = d.productCode || d.product;
       if (!acc[k]) acc[k] = { name: d.product, cnt: 0, amt: 0 };
       acc[k].cnt++; acc[k].amt += num(d.amount);
@@ -971,16 +987,23 @@ function saveSale(keepOpen) {
   const custId = resolveCust($('sl-cust').value);
   const code = resolveProd($('sl-product').value);
   const p = prodByCode(code);
+  /* 모달에 없는 필드(nextAction 등)는 건드리지 않는다.
+     수주 파이프라인에서 올라온 건을 여기서 수정해도 출처(src)와 후속 액션이 보존된다. */
   const row = {
     custId, productCode: code, product: p ? p.name : trimv($('sl-product').value),
+    cat: p ? p.cat : '장비',
     qty: num($('sl-qty').value) || 1, amount: amt,
     stage: '계약완료', prob: 100, expectedDate: dt, closedAt: dt,
-    rep: resolveRep($('sl-rep').value), nextAction: '', nextActionDate: '',
-    memo: trimv($('sl-memo').value), src: 'direct'
+    rep: resolveRep($('sl-rep').value), memo: trimv($('sl-memo').value)
   };
   const id = $('sl-id').value;
-  if (id) Object.assign(DB.deals.find(x => x.id === id), row);
-  else DB.deals.push(Object.assign({ id: uid(), createdAt: today() }, row));
+  if (id) {
+    const ex = DB.deals.find(x => x.id === id);
+    Object.assign(ex, row);
+    if (!ex.src) ex.src = 'pipeline';   // 출처 표기만 명시, direct 로 바꾸지 않음
+  } else {
+    DB.deals.push(Object.assign({ id: uid(), createdAt: today(), nextAction: '', nextActionDate: '', src: 'direct' }, row));
+  }
   save();
   if (keepOpen) {
     $('sl-id').value = ''; $('sl-del-btn').style.display = 'none';
@@ -1010,7 +1033,7 @@ function renderSaleList() {
   const from = y + '-' + pad(a) + '-01', to = ymd(new Date(y, b, 0));
   const q = trimv(($('sale-search') || {}).value).toLowerCase();
   const catF = MIX_CAT === 'all' ? null : MIX_CAT;
-  let rows = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || CAT2(d.productCode) === catF));
+  let rows = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || dealCat(d) === catF));
   if (q) rows = rows.filter(d => (custName(d.custId) + ' ' + d.product + ' ' + (d.rep || '')).toLowerCase().includes(q));
   rows.sort((x, z) => String(z.expectedDate).localeCompare(String(x.expectedDate)));
   const tot = rows.reduce((t, d) => t + num(d.amount), 0);
@@ -1019,7 +1042,7 @@ function renderSaleList() {
       + '<thead><tr><th>매출일</th><th>고객사</th><th>제품</th><th>분류</th><th class="text-center">수량</th>'
       + '<th class="text-end">금액</th><th>담당</th><th>구분</th><th></th></tr></thead><tbody>'
       + rows.map(d => {
-          const cat = CAT2(d.productCode), cc = cat === '장비' ? '#16a34a' : '#0e7490';
+          const cat = dealCat(d), cc = cat === '장비' ? '#16a34a' : '#0e7490';
           return '<tr><td>' + fmtDate(d.expectedDate) + '</td>'
             + '<td><a class="cust-link" onclick="openCustDetail(\'' + d.custId + '\')">' + esc(custName(d.custId)) + '</a></td>'
             + '<td style="max-width:230px;overflow:hidden;text-overflow:ellipsis">' + esc(d.product) + '</td>'
@@ -1043,7 +1066,7 @@ function renderMix() {
 
   const cur = rSum(y, a, b, catF), pv = rSum(y - 1, a, b, catF);
   const devA = rSum(y, a, b, '장비'), consA = rSum(y, a, b, '소모품');
-  const cnt = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || CAT2(d.productCode) === catF)).length;
+  const cnt = WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!catF || dealCat(d) === catF)).length;
   const denom = (devA + consA) || 1;
 
   const fact = (lab, v, sub) => '<div class="cdud-fact"><span>' + lab + '</span><b>' + v + '</b><i>' + sub + '</i></div>';
@@ -1061,9 +1084,9 @@ function renderMix() {
   const acc = {};
   WON_DEALS().forEach(d => {
     if (!inRange(d.expectedDate, from, to)) return;
-    if (catF && CAT2(d.productCode) !== catF) return;
+    if (catF && dealCat(d) !== catF) return;
     const k = d.productCode || d.product;
-    if (!acc[k]) acc[k] = { name: d.product, cat: CAT2(d.productCode), cnt: 0, amt: 0, custs: {} };
+    if (!acc[k]) acc[k] = { name: d.product, cat: dealCat(d), cnt: 0, amt: 0, custs: {} };
     acc[k].cnt++; acc[k].amt += num(d.amount); acc[k].custs[d.custId] = 1;
   });
   const list = Object.keys(acc).map(k => Object.assign({ code: k }, acc[k])).sort((x, z) => z.amt - x.amt);
@@ -1306,7 +1329,8 @@ function saveDeal() {
   const p = prodByCode(code);
   const id = $('d-id').value;
   const row = {
-    custId, productCode: code, product: p ? p.name : code, qty: num($('d-qty').value) || 1, amount: amt,
+    custId, productCode: code, product: p ? p.name : code, cat: p ? p.cat : '장비',
+    qty: num($('d-qty').value) || 1, amount: amt,
     stage: $('d-stage').value, prob: num($('d-prob').value), rep: resolveRep($('d-rep').value),
     expectedDate: $('d-expected').value, nextAction: $('d-next').value.trim(),
     nextActionDate: $('d-next-date').value, memo: $('d-memo').value.trim()
