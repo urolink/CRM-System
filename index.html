@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>UroLink CRM</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%230e7490'/><text x='50' y='68' font-size='54' font-family='sans-serif' font-weight='bold' fill='%23fff' text-anchor='middle'>U</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link href="app.css" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()" aria-label="메뉴"><span></span><span></span><span></span></button>
+
+<!-- ══════════ 사이드바 ══════════ -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon"><i class="bi bi-activity"></i></div>
+    <div>
+      <div class="brand-name">UroLink</div>
+      <div class="brand-sub">영업관리 CRM</div>
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">현황</div>
+    <ul class="list-unstyled mb-0">
+      <li><a class="nav-link active" data-page="overview" onclick="showPage('overview',this)"><i class="bi bi-bar-chart-line"></i>종합 현황</a></li>
+      <li><a class="nav-link" data-page="analysis" onclick="showPage('analysis',this)"><i class="bi bi-graph-up-arrow"></i>영업 분석</a></li>
+    </ul>
+
+    <div class="nav-label mt-3">영업</div>
+    <ul class="list-unstyled mb-0">
+      <li><a class="nav-link" data-page="sales" onclick="showPage('sales',this)"><i class="bi bi-kanban"></i>수주관리<span class="nav-count" id="cnt-deals"></span></a></li>
+      <li><a class="nav-link" data-page="schedule" onclick="showPage('schedule',this)"><i class="bi bi-calendar-week"></i>일정<span class="nav-count" id="cnt-sch"></span></a></li>
+      <li><a class="nav-link" data-page="quotes" onclick="showPage('quotes',this)"><i class="bi bi-file-earmark-text"></i>견적서<span class="nav-count" id="cnt-quotes"></span></a></li>
+    </ul>
+
+    <div class="nav-label mt-3">관리</div>
+    <ul class="list-unstyled mb-0">
+      <li><a class="nav-link" data-page="customers" onclick="showPage('customers',this)"><i class="bi bi-hospital"></i>고객사<span class="nav-count" id="cnt-cust"></span></a></li>
+      <li><a class="nav-link" data-page="equipments" onclick="showPage('equipments',this)"><i class="bi bi-cpu"></i>장비·A/S<span class="nav-count" id="cnt-equip"></span></a></li>
+      <li><a class="nav-link" data-page="products" onclick="showPage('products',this)"><i class="bi bi-box-seam"></i>제품<span class="nav-count" id="cnt-prod"></span></a></li>
+      <li><a class="nav-link" data-page="settings" onclick="showPage('settings',this)"><i class="bi bi-gear"></i>설정·데이터</a></li>
+    </ul>
+  </div>
+
+  <div class="sidebar-footer">
+    <a class="nav-link" onclick="openSearch()"><i class="bi bi-search"></i>통합 검색
+      <kbd style="font-size:9px;background:#e2e8f0;border:1px solid #cbd5e1;border-radius:4px;padding:1px 4px;color:#475569;margin-left:auto">Ctrl K</kbd></a>
+    <div style="padding:8px 18px 2px;font-size:11px;color:#94a3b8" id="footer-meta"></div>
+  </div>
+</nav>
+
+<!-- ══════════ 메인 ══════════ -->
+<div class="main" id="main">
+
+  <div id="sample-banner" style="display:none">
+    <i class="bi bi-info-circle-fill"></i>
+    <span>샘플(가상) 데이터가 들어있습니다. 실제 데이터를 넣기 전에 지워주세요.</span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="clearSample()">샘플 데이터 삭제</button>
+  </div>
+
+  <!-- ────────── 종합 현황 ────────── -->
+  <div id="page-overview" class="page active">
+    <div class="wt-mast">
+      <div>
+        <div class="kick">UROLINK SALES</div>
+        <div class="t"><i class="bi bi-bar-chart-line me-2"></i>종합 현황</div>
+      </div>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="d-flex gap-1" id="ov-period-btns">
+          <button class="dash-period-btn" onclick="setOvPeriod('month',this)">이번달</button>
+          <button class="dash-period-btn" onclick="setOvPeriod('quarter',this)">이번분기</button>
+          <button class="dash-period-btn on" onclick="setOvPeriod('year',this)">올해</button>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openDealModal()"><i class="bi bi-plus-lg me-1"></i>딜 추가</button>
+      </div>
+    </div>
+
+    <div class="wt-band" id="ov-band"></div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-lg-8">
+        <div class="card p-3 h-100">
+          <div class="wt-st">월별 수주 실적 <span style="font-size:11px;font-weight:500;color:#94a3b8">· 계약완료 기준, 최근 12개월</span></div>
+          <div style="position:relative;height:230px"><canvas id="chart-ov-month"></canvas></div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card p-3 h-100">
+          <div class="wt-st">파이프라인 단계</div>
+          <div id="ov-funnel"></div>
+          <div id="ov-funnel-sum" class="mt-2 pt-2" style="border-top:1px solid #f3f4f6"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="wt-st mb-0" style="border:0;padding:0">매출 전망 <span id="ov-fc-label" style="font-size:11px;font-weight:500;color:#64748b"></span></div>
+        <span id="ov-fc-total" style="font-size:14px;font-weight:800;color:var(--blue)"></span>
+      </div>
+      <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#f1f5f9">
+        <div id="ov-bar-won" style="height:100%;background:#16a34a;transition:width .5s"></div>
+        <div id="ov-bar-exp" style="height:100%;background:#7dd3fc;transition:width .5s"></div>
+      </div>
+      <div class="d-flex gap-4 mt-2" style="font-size:11.5px">
+        <span><span style="display:inline-block;width:8px;height:8px;background:#16a34a;border-radius:2px;margin-right:4px"></span>확정(계약완료) <strong id="ov-bar-won-v"></strong></span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:#7dd3fc;border-radius:2px;margin-right:4px"></span>확률가중 예상 <strong id="ov-bar-exp-v"></strong></span>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-7">
+        <div class="card p-0 h-100">
+          <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+            <div class="fw-bold" style="font-size:14px"><i class="bi bi-bell-fill me-2" style="color:#ea580c"></i>다음 액션
+              <span style="font-size:11px;font-weight:400;color:#94a3b8">· 행 클릭 시 상세</span></div>
+            <div class="d-flex gap-2">
+              <span class="badge" style="background:#fef2f2;color:#dc2626;font-size:11px" id="ov-act-od"></span>
+              <span class="badge" style="background:#fff7ed;color:#ea580c;font-size:11px" id="ov-act-td"></span>
+              <span class="badge" style="background:#ecfeff;color:#0e7490;font-size:11px" id="ov-act-wk"></span>
+            </div>
+          </div>
+          <div id="ov-action-board" style="max-height:320px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card p-0 h-100">
+          <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-shield-exclamation me-2" style="color:#dc2626"></i>관리 필요</div>
+          <div id="ov-alerts" class="p-3" style="max-height:320px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────── 영업 분석 ────────── -->
+  <div id="page-analysis" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK ANALYTICS</div><div class="t"><i class="bi bi-graph-up-arrow me-2"></i>영업 분석</div></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="wt-tab on" onclick="anaTab('rep',this)"><i class="bi bi-person-badge"></i>담당자별</button>
+        <button class="wt-tab" onclick="anaTab('product',this)"><i class="bi bi-box-seam"></i>제품별</button>
+        <button class="wt-tab" onclick="anaTab('region',this)"><i class="bi bi-geo-alt"></i>지역별</button>
+        <button class="wt-tab" onclick="anaTab('funnel',this)"><i class="bi bi-funnel"></i>전환율</button>
+      </div>
+    </div>
+    <div class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+      <select class="form-select form-select-sm" style="width:100px;font-weight:600" id="ana-year" onchange="renderAnalysis()"></select>
+      <select class="form-select form-select-sm" style="width:auto;font-weight:600" id="ana-period" onchange="renderAnalysis()">
+        <option value="year">연간</option>
+        <option value="Q1">1분기</option><option value="Q2">2분기</option><option value="Q3">3분기</option><option value="Q4">4분기</option>
+        <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option><option value="4">4월</option>
+        <option value="5">5월</option><option value="6">6월</option><option value="7">7월</option><option value="8">8월</option>
+        <option value="9">9월</option><option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+      </select>
+      <span id="ana-desc" style="font-size:12px;color:#64748b;font-weight:600"></span>
+    </div>
+    <div id="ana-body"></div>
+  </div>
+
+  <!-- ────────── 수주관리 ────────── -->
+  <div id="page-sales" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK PIPELINE</div><div class="t"><i class="bi bi-kanban me-2"></i>수주관리</div></div>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportDeals()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
+        <button class="btn btn-primary btn-sm" onclick="openDealModal()"><i class="bi bi-plus-lg me-1"></i>딜 추가</button>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3" id="sales-kpi"></div>
+
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+      <button class="wt-tab on" onclick="salesTab('pipeline',this)"><i class="bi bi-kanban"></i>파이프라인</button>
+      <button class="wt-tab" onclick="salesTab('list',this)"><i class="bi bi-list-ul"></i>목록</button>
+      <button class="wt-tab" onclick="salesTab('logs',this)"><i class="bi bi-journal-text"></i>상담일지</button>
+    </div>
+
+    <div id="sales-tab-pipeline">
+      <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <input type="text" id="pipe-search" class="form-control form-control-sm" style="max-width:200px" placeholder="고객사, 제품, 담당자..." oninput="renderPipeline()">
+        <select id="pipe-rep" class="form-select form-select-sm" style="max-width:140px" onchange="renderPipeline()"><option value="">전체 담당자</option></select>
+        <div class="d-flex gap-1 flex-wrap" id="pipe-chips"></div>
+        <span class="ms-auto" style="font-size:11.5px;color:#94a3b8"><i class="bi bi-arrows-move me-1"></i>카드를 끌어 단계 변경</span>
+      </div>
+      <div class="pipeline-board" id="kanban-board"></div>
+    </div>
+
+    <div id="sales-tab-list" style="display:none">
+      <div class="d-flex gap-2 mb-2 flex-wrap">
+        <input type="text" id="dl-search" class="form-control form-control-sm" style="max-width:220px" placeholder="검색..." oninput="renderDealList()">
+        <select id="dl-stage" class="form-select form-select-sm" style="max-width:140px" onchange="renderDealList()"><option value="">전체 단계</option></select>
+      </div>
+      <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+        <thead><tr><th>고객사</th><th>제품</th><th class="text-end">금액</th><th>단계</th><th class="text-center">확률</th><th>예상 수주일</th><th>담당</th><th>다음 액션</th><th></th></tr></thead>
+        <tbody id="deal-list-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <div id="sales-tab-logs" style="display:none">
+      <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+        <input type="text" id="log-search" class="form-control form-control-sm" style="max-width:260px" placeholder="고객사, 내용, 담당자 검색..." oninput="renderLogs()">
+        <button class="btn btn-primary btn-sm" onclick="openLogModal()"><i class="bi bi-plus-lg me-1"></i>일지 작성</button>
+      </div>
+      <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+        <thead><tr><th>일자</th><th>고객사</th><th>유형</th><th>내용</th><th>관심제품</th><th>다음 액션</th><th>담당</th><th></th></tr></thead>
+        <tbody id="log-tbody"></tbody>
+      </table></div></div>
+    </div>
+  </div>
+
+  <!-- ────────── 일정 ────────── -->
+  <div id="page-schedule" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK SCHEDULE</div><div class="t"><i class="bi bi-calendar-week me-2"></i>일정</div></div>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <select id="sch-rep" class="form-select form-select-sm" style="width:auto" onchange="renderSchedule()"><option value="">전체 담당자</option></select>
+        <button class="btn btn-primary btn-sm" onclick="openSchModal()"><i class="bi bi-plus-lg me-1"></i>일정 추가</button>
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <button class="btn btn-outline-secondary btn-sm" onclick="schMove(-1)"><i class="bi bi-chevron-left"></i></button>
+      <div id="sch-title" style="font-size:16px;font-weight:800;min-width:150px;text-align:center"></div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="schMove(1)"><i class="bi bi-chevron-right"></i></button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="schToday()">오늘</button>
+      <div class="ms-auto d-flex gap-2 flex-wrap" style="font-size:11px" id="sch-legend"></div>
+    </div>
+    <div class="card p-3 mb-3">
+      <div id="cal-scroll"><div class="cal-grid" id="cal-grid"></div></div>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><div class="card p-0 h-100">
+        <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-calendar-check me-2" style="color:#0e7490"></i>오늘 일정</div>
+        <div id="sch-today" class="p-2"></div>
+      </div></div>
+      <div class="col-md-6"><div class="card p-0 h-100">
+        <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-clock-history me-2" style="color:#ea580c"></i>결과 미입력 (지난 일정)</div>
+        <div id="sch-pending" class="p-2"></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- ────────── 견적서 ────────── -->
+  <div id="page-quotes" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK QUOTATION</div><div class="t"><i class="bi bi-file-earmark-text me-2"></i>견적서</div></div>
+      <button class="btn btn-primary btn-sm" onclick="openQuoteModal()"><i class="bi bi-plus-lg me-1"></i>견적서 작성</button>
+    </div>
+    <div class="wt-band" id="quote-band"></div>
+    <div class="d-flex gap-2 mb-2 flex-wrap">
+      <input type="text" id="q-search" class="form-control form-control-sm" style="max-width:240px" placeholder="견적번호, 고객사, 담당자..." oninput="renderQuotes()">
+      <select id="q-status" class="form-select form-select-sm" style="max-width:140px" onchange="renderQuotes()">
+        <option value="">전체 상태</option><option>임시저장</option><option>발송</option><option>수주</option><option>실주</option>
+      </select>
+    </div>
+    <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+      <thead><tr><th>견적번호</th><th>고객사</th><th>견적일</th><th>유효기한</th><th>담당</th><th class="text-end">합계(VAT 포함)</th><th>상태</th><th></th></tr></thead>
+      <tbody id="quote-tbody"></tbody>
+    </table></div></div>
+  </div>
+
+  <!-- ────────── 고객사 ────────── -->
+  <div id="page-customers" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK ACCOUNTS</div><div class="t"><i class="bi bi-hospital me-2"></i>고객사</div></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportCustomers()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
+        <button class="btn btn-primary btn-sm" onclick="openCustModal()"><i class="bi bi-plus-lg me-1"></i>고객사 추가</button>
+      </div>
+    </div>
+    <div class="wt-band" id="cust-band"></div>
+    <div class="d-flex gap-2 mb-2 flex-wrap">
+      <input type="text" id="c-search" class="form-control form-control-sm" style="max-width:260px" placeholder="고객사명, 원장명, 지역, 담당자, 태그..." oninput="renderCustomers()">
+      <select id="c-grade" class="form-select form-select-sm" style="max-width:120px" onchange="renderCustomers()">
+        <option value="">전체 등급</option><option>A</option><option>B</option><option>C</option><option>D</option>
+      </select>
+      <select id="c-rep" class="form-select form-select-sm" style="max-width:140px" onchange="renderCustomers()"><option value="">전체 담당자</option></select>
+      <select id="c-region" class="form-select form-select-sm" style="max-width:140px" onchange="renderCustomers()"><option value="">전체 지역</option></select>
+    </div>
+    <div id="c-tagbar" class="mb-2 d-flex gap-1 flex-wrap"></div>
+    <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+      <thead><tr><th>고객사명</th><th>구분</th><th>원장/담당</th><th>지역</th><th>연락처</th><th>담당영업</th><th class="text-center">등급</th><th class="text-end">누적 수주</th><th>태그</th><th></th></tr></thead>
+      <tbody id="cust-tbody"></tbody>
+    </table></div></div>
+  </div>
+
+  <!-- ────────── 장비·A/S ────────── -->
+  <div id="page-equipments" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK INSTALLED BASE</div><div class="t"><i class="bi bi-cpu me-2"></i>장비 · A/S</div></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportEquip()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
+        <button class="btn btn-primary btn-sm" onclick="openEquipModal()"><i class="bi bi-plus-lg me-1"></i>장비 등록</button>
+      </div>
+    </div>
+    <div class="wt-band" id="equip-band"></div>
+    <div class="d-flex gap-2 mb-2 flex-wrap">
+      <input type="text" id="e-search" class="form-control form-control-sm" style="max-width:260px" placeholder="고객사, 모델명, 시리얼, 담당자..." oninput="renderEquip()">
+      <select id="e-status" class="form-select form-select-sm" style="max-width:140px" onchange="renderEquip()">
+        <option value="">전체 상태</option><option>정상</option><option>수리중</option><option>교체예정</option><option>반납</option>
+      </select>
+      <select id="e-warranty" class="form-select form-select-sm" style="max-width:170px" onchange="renderEquip()">
+        <option value="">보증 전체</option><option value="soon">90일 내 만료</option><option value="expired">만료</option><option value="valid">유효</option>
+      </select>
+    </div>
+    <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+      <thead><tr><th>고객사</th><th>모델명</th><th>시리얼</th><th>설치일</th><th>보증만료</th><th>상태</th><th>담당</th><th class="text-center">A/S</th><th></th></tr></thead>
+      <tbody id="equip-tbody"></tbody>
+    </table></div></div>
+  </div>
+
+  <!-- ────────── 제품 ────────── -->
+  <div id="page-products" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK CATALOG</div><div class="t"><i class="bi bi-box-seam me-2"></i>제품</div></div>
+      <button class="btn btn-primary btn-sm" onclick="openProdModal()"><i class="bi bi-plus-lg me-1"></i>제품 추가</button>
+    </div>
+    <div class="d-flex gap-2 mb-2 flex-wrap">
+      <input type="text" id="p-search" class="form-control form-control-sm" style="max-width:240px" placeholder="제품코드, 제품명..." oninput="renderProducts()">
+      <select id="p-cat" class="form-select form-select-sm" style="max-width:150px" onchange="renderProducts()"><option value="">전체 분류</option></select>
+    </div>
+    <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
+      <thead><tr><th>제품코드</th><th>제품명</th><th>분류</th><th class="text-end">정가</th><th class="text-center">단위</th><th class="text-center">보증(월)</th><th class="text-end">수주 건수</th><th></th></tr></thead>
+      <tbody id="prod-tbody"></tbody>
+    </table></div></div>
+  </div>
+
+  <!-- ────────── 설정·데이터 ────────── -->
+  <div id="page-settings" class="page">
+    <div class="wt-mast">
+      <div><div class="kick">UROLINK SETTINGS</div><div class="t"><i class="bi bi-gear me-2"></i>설정 · 데이터</div></div>
+    </div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <div class="wt-st">담당자 관리</div>
+          <div class="d-flex gap-2 mb-2">
+            <input type="text" id="rep-name" class="form-control form-control-sm" placeholder="이름">
+            <input type="text" id="rep-role" class="form-control form-control-sm" placeholder="직책/파트" style="max-width:130px">
+            <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addRep()">추가</button>
+          </div>
+          <div id="rep-list"></div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <div class="wt-st">데이터 백업 · 복원</div>
+          <p style="font-size:12.5px;color:#64748b">현재 데이터는 이 브라우저에만 저장됩니다. 다른 PC로 옮기거나 백업할 때 JSON 파일을 사용하세요.</p>
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-primary btn-sm" onclick="exportJSON()"><i class="bi bi-download me-1"></i>JSON 내보내기</button>
+            <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)">
+            <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('import-file').click()"><i class="bi bi-upload me-1"></i>JSON 불러오기</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="exportAllExcel()"><i class="bi bi-file-earmark-excel me-1"></i>전체 엑셀</button>
+          </div>
+          <hr>
+          <div class="wt-st">초기화</div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadSample()"><i class="bi bi-database-add me-1"></i>샘플 데이터 다시 넣기</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="resetAll()"><i class="bi bi-trash me-1"></i>전체 삭제</button>
+          </div>
+          <div class="mt-3" style="font-size:12px;color:#94a3b8" id="storage-info"></div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="card p-3">
+          <div class="wt-st">파이프라인 단계 · 확률</div>
+          <div id="stage-config" class="d-flex gap-3 flex-wrap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ══════════ 딜 드로어 ══════════ -->
+<div id="deal-drawer-bg" onclick="closeDrawer()"></div>
+<div id="deal-drawer"></div>
+
+<!-- ══════════ 통합 검색 ══════════ -->
+<div class="search-overlay" id="search-overlay" onclick="if(event.target===this)closeSearch()">
+  <div class="search-box">
+    <div class="search-input-wrap">
+      <i class="bi bi-search" style="color:#94a3b8;font-size:18px"></i>
+      <input type="text" id="search-input" placeholder="고객사 · 딜 · 견적 · 장비 · 제품 검색" oninput="doSearch()" onkeydown="searchKey(event)">
+      <kbd style="font-size:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;color:#64748b">ESC</kbd>
+    </div>
+    <div class="search-results" id="search-results"></div>
+  </div>
+</div>
+
+<!-- ══════════ 모달: 딜 ══════════ -->
+<div class="modal fade" id="dealModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="deal-modal-title">딜 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="d-id">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">고객사 *</label><select class="form-select" id="d-cust"></select></div>
+      <div class="col-md-6"><label class="form-label">제품 *</label><select class="form-select" id="d-product" onchange="dealProdChange()"></select></div>
+      <div class="col-md-4"><label class="form-label">수량</label><input type="number" class="form-control" id="d-qty" value="1" min="1" oninput="dealCalc()"></div>
+      <div class="col-md-8"><label class="form-label">금액(원) *</label><input type="text" class="form-control" id="d-amount" inputmode="numeric" oninput="commaInput(this)"></div>
+      <div class="col-md-6"><label class="form-label">단계</label><select class="form-select" id="d-stage" onchange="dealStageChange()"></select></div>
+      <div class="col-md-6"><label class="form-label">수주 확률(%)</label><input type="number" class="form-control" id="d-prob" min="0" max="100"></div>
+      <div class="col-md-6"><label class="form-label">담당자</label><select class="form-select" id="d-rep"></select></div>
+      <div class="col-md-6"><label class="form-label">예상 수주일</label><input type="date" class="form-control" id="d-expected"></div>
+      <div class="col-md-6"><label class="form-label">다음 액션</label><input type="text" class="form-control" id="d-next" placeholder="예: 원장 미팅 · 데모 일정 확정"></div>
+      <div class="col-md-6"><label class="form-label">다음 액션 예정일</label><input type="date" class="form-control" id="d-next-date"></div>
+      <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="d-memo" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="d-del-btn" onclick="deleteDeal()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveDeal()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 고객사 ══════════ -->
+<div class="modal fade" id="custModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="cust-modal-title">고객사 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="c-id">
+    <div class="row g-3">
+      <div class="col-md-7"><label class="form-label">고객사명 *</label><input type="text" class="form-control" id="c-name" placeholder="예: 한강비뇨의학과의원"></div>
+      <div class="col-md-5"><label class="form-label">구분</label><select class="form-select" id="c-type">
+        <option>의원</option><option>병원</option><option>종합병원</option><option>대학병원</option><option>대리점</option></select></div>
+      <div class="col-md-4"><label class="form-label">원장 / 담당</label><input type="text" class="form-control" id="c-doctor"></div>
+      <div class="col-md-4"><label class="form-label">진료과</label><input type="text" class="form-control" id="c-dept" placeholder="비뇨의학과"></div>
+      <div class="col-md-4"><label class="form-label">등급</label><select class="form-select" id="c-grade-in">
+        <option>A</option><option selected>B</option><option>C</option><option>D</option></select></div>
+      <div class="col-md-4"><label class="form-label">시/도</label><input type="text" class="form-control" id="c-sido" placeholder="서울"></div>
+      <div class="col-md-4"><label class="form-label">시/군/구</label><input type="text" class="form-control" id="c-gugun" placeholder="강남구"></div>
+      <div class="col-md-4"><label class="form-label">담당영업</label><select class="form-select" id="c-rep-in"></select></div>
+      <div class="col-md-4"><label class="form-label">전화</label><input type="text" class="form-control" id="c-phone"></div>
+      <div class="col-md-8"><label class="form-label">주소</label><input type="text" class="form-control" id="c-addr"></div>
+      <div class="col-12"><label class="form-label">태그 <span style="font-weight:400;color:#94a3b8">쉼표로 구분</span></label>
+        <input type="text" class="form-control" id="c-tags" placeholder="예: ESWL보유, 학회활동, 다점포"></div>
+      <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="c-memo" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="c-del-btn" onclick="deleteCust()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveCust()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 고객사 상세 ══════════ -->
+<div class="modal fade" id="custDetailModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header">
+    <div>
+      <h5 class="modal-title" id="cd-name"></h5>
+      <div style="font-size:12px;color:#64748b;margin-top:2px" id="cd-sub"></div>
+    </div>
+    <button class="btn-close" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <div class="wt-band mb-3" id="cd-band"></div>
+    <div class="d-flex gap-2 mb-3 flex-wrap" id="cd-tabs">
+      <button class="wt-tab on" onclick="cdTab('info',this)"><i class="bi bi-info-circle"></i>기본정보</button>
+      <button class="wt-tab" onclick="cdTab('deals',this)"><i class="bi bi-kanban"></i>딜</button>
+      <button class="wt-tab" onclick="cdTab('equip',this)"><i class="bi bi-cpu"></i>보유장비</button>
+      <button class="wt-tab" onclick="cdTab('quotes',this)"><i class="bi bi-file-earmark-text"></i>견적</button>
+      <button class="wt-tab" onclick="cdTab('timeline',this)"><i class="bi bi-clock-history"></i>활동 타임라인</button>
+    </div>
+    <div id="cd-body"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-secondary btn-sm me-auto" onclick="editCustFromDetail()"><i class="bi bi-pencil me-1"></i>정보 수정</button>
+    <button class="btn btn-outline-primary btn-sm" onclick="quickLogForCust()"><i class="bi bi-journal-plus me-1"></i>일지 작성</button>
+    <button class="btn btn-primary btn-sm" onclick="quickDealForCust()"><i class="bi bi-plus-lg me-1"></i>딜 추가</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 상담일지 ══════════ -->
+<div class="modal fade" id="logModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="log-modal-title">상담일지</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="l-id">
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label">일자 *</label><input type="date" class="form-control" id="l-date"></div>
+      <div class="col-md-8"><label class="form-label">고객사 *</label><select class="form-select" id="l-cust"></select></div>
+      <div class="col-md-4"><label class="form-label">유형</label><select class="form-select" id="l-type">
+        <option>방문</option><option>전화</option><option>이메일</option><option>데모/시연</option><option>시술참관</option><option>학회</option><option>기타</option></select></div>
+      <div class="col-md-4"><label class="form-label">관심제품</label><select class="form-select" id="l-interest"></select></div>
+      <div class="col-md-4"><label class="form-label">담당자</label><select class="form-select" id="l-rep"></select></div>
+      <div class="col-12"><label class="form-label">상담 내용 *</label><textarea class="form-control" id="l-content" rows="4"></textarea></div>
+      <div class="col-md-8"><label class="form-label">다음 액션</label><input type="text" class="form-control" id="l-next"></div>
+      <div class="col-md-4"><label class="form-label">예정일</label><input type="date" class="form-control" id="l-next-date"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="l-del-btn" onclick="deleteLog()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveLog()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 일정 ══════════ -->
+<div class="modal fade" id="schModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="sch-modal-title">일정 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="s-id">
+    <div class="row g-3">
+      <div class="col-7"><label class="form-label">일자 *</label><input type="date" class="form-control" id="s-date"></div>
+      <div class="col-5"><label class="form-label">시간</label><input type="time" class="form-control" id="s-time"></div>
+      <div class="col-12"><label class="form-label">고객사</label><select class="form-select" id="s-cust"></select></div>
+      <div class="col-6"><label class="form-label">유형</label><select class="form-select" id="s-type">
+        <option>방문</option><option>전화</option><option>데모/시연</option><option>설치</option><option>A/S</option><option>학회</option><option>내부</option></select></div>
+      <div class="col-6"><label class="form-label">담당자</label><select class="form-select" id="s-rep"></select></div>
+      <div class="col-12"><label class="form-label">내용 *</label><input type="text" class="form-control" id="s-title" placeholder="예: 원장 미팅 — ESWL 데모 협의"></div>
+      <div class="col-12">
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="s-done" onchange="document.getElementById('s-result-wrap').style.display=this.checked?'block':'none'">
+          <label class="form-check-label" for="s-done" style="font-size:13px">완료</label></div>
+      </div>
+      <div class="col-12" id="s-result-wrap" style="display:none"><label class="form-label">결과</label><textarea class="form-control" id="s-result" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="s-del-btn" onclick="deleteSch()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveSch()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 일별 일정 ══════════ -->
+<div class="modal fade" id="dayModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="day-modal-title"></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body" id="day-modal-body"></div>
+  <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="addSchForDay()"><i class="bi bi-plus-lg me-1"></i>이 날짜에 일정 추가</button></div>
+</div></div></div>
+
+<!-- ══════════ 모달: 견적서 ══════════ -->
+<div class="modal fade" id="quoteModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="quote-modal-title">견적서 작성</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="q-id">
+    <div class="row g-3 mb-3">
+      <div class="col-md-5"><label class="form-label">고객사 *</label><select class="form-select" id="q-cust"></select></div>
+      <div class="col-md-3"><label class="form-label">견적일</label><input type="date" class="form-control" id="q-date"></div>
+      <div class="col-md-2"><label class="form-label">유효기한(일)</label><input type="number" class="form-control" id="q-valid" value="30"></div>
+      <div class="col-md-2"><label class="form-label">담당자</label><select class="form-select" id="q-rep"></select></div>
+    </div>
+    <div class="wt-st">품목</div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th style="width:34%">제품</th><th style="width:9%">수량</th><th style="width:17%">단가</th><th style="width:10%">할인%</th><th style="width:20%" class="text-end">금액</th><th style="width:6%"></th></tr></thead>
+        <tbody id="q-items"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm mb-3" onclick="addQuoteItem()"><i class="bi bi-plus-lg me-1"></i>품목 추가</button>
+    <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label">특기사항</label>
+        <textarea class="form-control" id="q-memo" rows="4" placeholder="예: 설치·교육 포함 / 소모품 별도 / 결제조건 등"></textarea>
+        <div class="mt-2"><label class="form-label">상태</label>
+          <select class="form-select form-select-sm" id="q-status-in" style="max-width:160px">
+            <option>임시저장</option><option>발송</option><option>수주</option><option>실주</option></select></div>
+      </div>
+      <div class="col-md-5">
+        <table class="table table-sm mb-0">
+          <tr><td>공급가액</td><td class="text-end" id="q-subtotal">0원</td></tr>
+          <tr><td>할인 합계</td><td class="text-end" id="q-discount">0원</td></tr>
+          <tr><td>부가세(10%)</td><td class="text-end" id="q-vat">0원</td></tr>
+          <tr style="background:var(--blue-light)"><td class="fw-bold">합계</td><td class="text-end fw-bold" id="q-total" style="color:var(--blue)">0원</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="q-del-btn" onclick="deleteQuote()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-outline-primary" onclick="saveQuote(true)"><i class="bi bi-printer me-1"></i>저장 후 인쇄</button>
+    <button class="btn btn-primary" onclick="saveQuote(false)">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 장비 ══════════ -->
+<div class="modal fade" id="equipModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="equip-modal-title">장비 등록</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="e-id">
+    <div class="row g-3">
+      <div class="col-md-7"><label class="form-label">고객사 *</label><select class="form-select" id="e-cust"></select></div>
+      <div class="col-md-5"><label class="form-label">모델 *</label><select class="form-select" id="e-model" onchange="equipModelChange()"></select></div>
+      <div class="col-md-4"><label class="form-label">시리얼번호</label><input type="text" class="form-control" id="e-serial"></div>
+      <div class="col-md-4"><label class="form-label">설치일</label><input type="date" class="form-control" id="e-install" onchange="calcWarranty()"></div>
+      <div class="col-md-4"><label class="form-label">보증만료</label><input type="date" class="form-control" id="e-warranty-end"></div>
+      <div class="col-md-4"><label class="form-label">상태</label><select class="form-select" id="e-status-in">
+        <option>정상</option><option>수리중</option><option>교체예정</option><option>반납</option></select></div>
+      <div class="col-md-4"><label class="form-label">담당자</label><select class="form-select" id="e-rep"></select></div>
+      <div class="col-md-4"><label class="form-label">계약 형태</label><select class="form-select" id="e-contract">
+        <option>구매</option><option>렌탈</option><option>리스</option><option>데모기</option></select></div>
+      <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="e-memo" rows="2"></textarea></div>
+    </div>
+    <hr>
+    <div class="wt-st">A/S 이력</div>
+    <div class="row g-2 mb-2">
+      <div class="col-md-3"><input type="date" class="form-control form-control-sm" id="as-date"></div>
+      <div class="col-md-2"><select class="form-select form-select-sm" id="as-type">
+        <option>정기점검</option><option>수리</option><option>부품교체</option><option>교육</option><option>기타</option></select></div>
+      <div class="col-md-4"><input type="text" class="form-control form-control-sm" id="as-content" placeholder="내용"></div>
+      <div class="col-md-2"><input type="text" class="form-control form-control-sm" id="as-engineer" placeholder="담당 엔지니어"></div>
+      <div class="col-md-1"><button class="btn btn-primary btn-sm w-100" onclick="addAS()">추가</button></div>
+    </div>
+    <div id="as-list"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="e-del-btn" onclick="deleteEquip()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveEquip()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 제품 ══════════ -->
+<div class="modal fade" id="prodModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="prod-modal-title">제품 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="p-orig-code">
+    <div class="row g-3">
+      <div class="col-5"><label class="form-label">제품코드 *</label><input type="text" class="form-control" id="p-code"></div>
+      <div class="col-7"><label class="form-label">제품명 *</label><input type="text" class="form-control" id="p-name"></div>
+      <div class="col-6"><label class="form-label">분류</label><select class="form-select" id="p-cat-in">
+        <option>장비</option><option>소모품</option><option>액세서리</option><option>서비스</option></select></div>
+      <div class="col-6"><label class="form-label">단위</label><input type="text" class="form-control" id="p-unit" value="EA"></div>
+      <div class="col-6"><label class="form-label">정가(원)</label><input type="text" class="form-control" id="p-price" inputmode="numeric" oninput="commaInput(this)"></div>
+      <div class="col-6"><label class="form-label">보증기간(월)</label><input type="number" class="form-control" id="p-warranty" value="12"></div>
+      <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="p-memo" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-danger btn-sm me-auto" id="p-del-btn" onclick="deleteProd()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" onclick="saveProd()">저장</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 견적서 인쇄 영역 ══════════ -->
+<div id="quote-print"></div>
+
+<!-- ══════════ 모바일 하단 탭 ══════════ -->
+<div id="m-bottomnav">
+  <button class="on" data-page="overview" onclick="showPage('overview')"><i class="bi bi-bar-chart-line"></i>현황</button>
+  <button data-page="sales" onclick="showPage('sales')"><i class="bi bi-kanban"></i>수주</button>
+  <button data-page="schedule" onclick="showPage('schedule')"><i class="bi bi-calendar-week"></i>일정</button>
+  <button data-page="customers" onclick="showPage('customers')"><i class="bi bi-hospital"></i>고객사</button>
+  <button onclick="toggleSidebar()"><i class="bi bi-list"></i>전체</button>
+</div>
+
+<button id="pdf-fab" onclick="window.print()"><i class="bi bi-printer me-1"></i>PDF</button>
+
+<div class="saving-toast" id="toast"><i class="bi bi-check-circle-fill" style="color:#34d399"></i><span id="toast-msg">저장되었습니다</span></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
