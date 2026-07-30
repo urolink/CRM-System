@@ -76,34 +76,162 @@ function periodRange(year, type) {
 }
 function inRange(d, a, b) { if (!d) return false; d = String(d).slice(0, 10); return d >= a && d <= b; }
 
-/* ───────────────────────── 3. 데이터 계층 ───────────────────────── */
+/* ───────────────────────── 3. 데이터 계층 ─────────────────────────
+   두 가지 모드로 동작합니다.
+     local  : config.js 의 SUPABASE_KEY 가 비어있을 때. 이 브라우저에만 저장.
+     remote : 키가 채워져 있을 때. 로그인 필수, 여러 명이 같은 데이터를 공유.
+
+   remote 모드의 저장은 "전체 덮어쓰기"가 아니라 행 단위 diff 입니다.
+   마지막 동기화 시점의 사본(SHADOW)과 비교해 바뀐 행만 upsert / 없어진 행만 delete 하므로,
+   두 사람이 서로 다른 건을 동시에 고쳐도 상대 데이터가 날아가지 않습니다.
+   ───────────────────────────────────────────────────────────────── */
 let DB = null;
 
+const CFG = window.UROLINK_CONFIG || {};
+const TABLES = { customers: 'ul_customers', deals: 'ul_deals', logs: 'ul_logs', quotes: 'ul_quotes',
+                 equipments: 'ul_equipments', products: 'ul_products', schedules: 'ul_schedules', reps: 'ul_reps' };
+const KEY_FIELD = { products: 'code', reps: 'name' };   // 그 외 컬렉션은 'id'
+const rowKey = (coll, row) => String(row[KEY_FIELD[coll] || 'id'] || '');
+
+let SB = null;              // supabase 클라이언트
+let ME = null;              // 로그인 사용자 프로필
+let MODE = 'local';         // 'local' | 'remote'
+let SHADOW = {};            // 마지막 동기화 시점의 데이터 사본 (diff 기준)
+let SYNCING = 0;
+
+const isRemote = () => MODE === 'remote';
+const isAdmin = () => MODE === 'local' || !!(ME && ME.role === 'admin');
+const clone = o => JSON.parse(JSON.stringify(o));
+const cacheKey = () => isRemote() ? LS_KEY + '_cache' : LS_KEY;
+
+function ensureAdmin() {
+  if (isAdmin()) return true;
+  alert('삭제는 관리자만 할 수 있습니다.\n필요하면 관리자에게 요청해주세요.');
+  return false;
+}
 function blankDB() {
   return { customers: [], deals: [], logs: [], quotes: [], equipments: [], products: [], schedules: [],
            reps: [], meta: { ver: 1, updatedAt: null, sample: false } };
 }
-function load() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    DB = raw ? JSON.parse(raw) : null;
-  } catch (e) { DB = null; }
-  if (!DB || typeof DB !== 'object') { DB = blankDB(); seed(); save(true); }
-  // 누락 컬렉션 보정(구버전 백업 복원 대비)
+function fixShape() {
   const b = blankDB();
   Object.keys(b).forEach(k => { if (DB[k] == null) DB[k] = b[k]; });
   if (!DB.meta) DB.meta = b.meta;
 }
+const isEmptyDB = () => Object.keys(TABLES).every(k => !(DB[k] || []).length);
+/* 샘플 데이터 존재 여부 — meta 플래그는 브라우저별이라, 시드된 실제 행으로 판별(서버 공유 시에도 정확) */
+const hasSampleData = () => (DB.customers || []).some(c => c.id === 'c1' && c.name === '한강비뇨의학과의원');
+
+/* ── local 모드 로드 ── */
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    DB = raw ? JSON.parse(raw) : null;
+  } catch (e) { DB = null; }
+  if (!DB || typeof DB !== 'object') { DB = blankDB(); seed(); fixShape(); save(true); return; }
+  fixShape();
+}
+
+/* ── 저장: 로컬 캐시 기록 + (remote면) 서버 diff 반영 ── */
 function save(silent) {
   DB.meta.updatedAt = new Date().toISOString();
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(DB));
+    localStorage.setItem(cacheKey(), JSON.stringify(DB));
   } catch (e) {
-    alert('저장 실패: 브라우저 저장 공간이 부족합니다.\n설정 → JSON 내보내기로 백업 후 데이터를 정리해주세요.');
+    if (!isRemote()) {
+      alert('저장 실패: 브라우저 저장 공간이 부족합니다.\n설정 → JSON 내보내기로 백업 후 데이터를 정리해주세요.');
+      return;
+    }
+  }
+  refreshCounts();
+  if (isRemote()) pushDiff(silent);
+  else if (!silent) toast();
+}
+
+function syncing(on) {
+  SYNCING = Math.max(0, SYNCING + (on ? 1 : -1));
+  const el = $('footer-meta');
+  if (!el) return;
+  if (SYNCING) el.textContent = '서버 동기화 중...';
+  else refreshCounts();
+}
+
+/* ── 서버로 변경분만 밀어넣기 ── */
+async function pushDiff(silent) {
+  if (!SB) return;
+  const ops = [], summary = [];
+  Object.keys(TABLES).forEach(coll => {
+    const cur = DB[coll] || [], prev = SHADOW[coll] || [];
+    const curMap = new Map(), prevMap = new Map();
+    cur.forEach(r => { const k = rowKey(coll, r); if (k) curMap.set(k, r); });
+    prev.forEach(r => { const k = rowKey(coll, r); if (k) prevMap.set(k, r); });
+    const ups = [], dels = [];
+    curMap.forEach((row, k) => {
+      const p = prevMap.get(k);
+      if (!p || JSON.stringify(p) !== JSON.stringify(row)) ups.push({ id: k, data: row });
+    });
+    prevMap.forEach((_, k) => { if (!curMap.has(k)) dels.push(k); });
+    if (ups.length) { ops.push(SB.from(TABLES[coll]).upsert(ups)); summary.push(coll + '+' + ups.length); }
+    if (dels.length) { ops.push(SB.from(TABLES[coll]).delete().in('id', dels)); summary.push(coll + '-' + dels.length); }
+  });
+  if (!ops.length) { if (!silent) toast('변경된 내용이 없습니다'); return; }
+
+  syncing(true);
+  let res;
+  try { res = await Promise.all(ops); }
+  catch (e) { syncing(false); toast('네트워크 오류 — 서버에 저장하지 못했습니다'); console.error(e); return; }
+  syncing(false);
+
+  const bad = res.find(r => r && r.error);
+  if (bad) {
+    const m = String(bad.error.message || '');
+    // SHADOW 를 갱신하지 않으므로 다음 저장 때 자동으로 재시도됩니다.
+    toast(/row-level security|permission|policy/i.test(m)
+      ? '권한이 없어 서버에 저장되지 않았습니다 (삭제는 관리자만)'
+      : '서버 저장 실패 — 다음 저장 때 다시 시도합니다');
+    console.error('[pushDiff]', bad.error);
     return;
   }
-  if (!silent) toast();
-  refreshCounts();
+  SHADOW = clone(DB);
+  if (!silent) toast('저장되었습니다');
+}
+
+/* ── 서버에서 최신 데이터 가져오기 ── */
+async function pullRemote(withToast) {
+  if (!isRemote() || !SB) return;
+  syncing(true);
+  const names = Object.keys(TABLES);
+  let res;
+  try { res = await Promise.all(names.map(n => SB.from(TABLES[n]).select('id,data'))); }
+  catch (e) { syncing(false); toast('네트워크 오류 — 서버에서 불러오지 못했습니다'); console.error(e); return false; }
+  syncing(false);
+
+  const bad = res.find(r => r && r.error);
+  if (bad) {
+    console.error('[pullRemote]', bad.error);
+    const m = String(bad.error.message || '');
+    if (/relation .* does not exist|schema cache/i.test(m)) {
+      alert('서버에 테이블이 없습니다.\nmigration.sql 을 Supabase SQL Editor 에서 먼저 실행해주세요.');
+    } else {
+      toast('서버에서 불러오지 못했습니다 — 캐시된 데이터를 표시합니다');
+    }
+    if (!DB) { try { DB = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); } catch (e) {} }
+    if (!DB) DB = blankDB();
+    fixShape();
+    return false;
+  }
+
+  const meta = DB && DB.meta ? DB.meta : blankDB().meta;
+  DB = blankDB();
+  names.forEach((n, i) => { DB[n] = (res[i].data || []).map(r => r.data).filter(Boolean); });
+  DB.meta = meta;
+  fixShape();
+  SHADOW = clone(DB);
+  try { localStorage.setItem(cacheKey(), JSON.stringify(DB)); } catch (e) {}
+  refreshSelects(); refreshCounts();
+  if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
+  if (withToast) toast('최신 데이터를 불러왔습니다');
+  return true;
 }
 const custById  = id => DB.customers.find(c => c.id === id);
 const prodByCode = c => DB.products.find(p => p.code === c);
@@ -309,9 +437,47 @@ function refreshCounts() {
   $('cnt-cust').textContent   = DB.customers.length || '';
   $('cnt-equip').textContent  = DB.equipments.length || '';
   $('cnt-prod').textContent   = DB.products.length || '';
-  $('sample-banner').style.display = DB.meta.sample ? 'flex' : 'none';
+  renderBanner();
   const u = DB.meta.updatedAt ? new Date(DB.meta.updatedAt) : null;
   $('footer-meta').textContent = u ? '최근 저장 ' + u.getFullYear() + '.' + pad(u.getMonth() + 1) + '.' + pad(u.getDate()) + ' ' + pad(u.getHours()) + ':' + pad(u.getMinutes()) : '';
+}
+
+let BANNER_HIDDEN = false;
+function renderBanner() {
+  const el = $('sample-banner');
+  if (!el) return;
+  if (BANNER_HIDDEN) { el.style.display = 'none'; return; }
+  if (isRemote() && isEmptyDB()) {
+    el.style.display = 'flex';
+    el.innerHTML = `<i class="bi bi-cloud-slash"></i>
+      <span>서버에 데이터가 없습니다. 제품·담당자부터 넣고 시작하거나, 화면을 먼저 둘러보려면 샘플을 넣어보세요.</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="seedBasics()">제품·담당자만 넣기</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadSample()">샘플 전체 넣기</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="dismissBanner()">닫기</button>`;
+    return;
+  }
+  if (hasSampleData()) {
+    el.style.display = 'flex';
+    el.innerHTML = `<i class="bi bi-info-circle-fill"></i>
+      <span>샘플(가상) 데이터가 들어있습니다. 실제 데이터를 넣기 전에 지워주세요.</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="clearSample()">샘플 데이터 삭제</button>`;
+    return;
+  }
+  el.style.display = 'none';
+}
+function dismissBanner() { BANNER_HIDDEN = true; renderBanner(); }
+/* 샘플 없이 제품 카탈로그 + 담당자만 채우기 */
+function seedBasics() {
+  const tmp = DB;
+  DB = blankDB(); seed();
+  const products = DB.products, reps = DB.reps;
+  DB = tmp;
+  DB.products = products; DB.reps = reps;
+  save();
+  refreshSelects();
+  BANNER_HIDDEN = true;
+  if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
+  toast('제품 ' + products.length + '종 · 담당자 ' + reps.length + '명을 넣었습니다');
 }
 
 /* 공통 select 채우기 */
@@ -706,6 +872,7 @@ function saveDeal() {
   renderSales(); if (CUR_PAGE === 'overview') renderOverview();
 }
 function deleteDeal() {
+  if (!ensureAdmin()) return;
   const id = $('d-id').value; if (!id) return;
   if (!confirm('이 딜을 삭제할까요?')) return;
   DB.deals = DB.deals.filter(x => x.id !== id);
@@ -759,6 +926,7 @@ function saveLog() {
   if (CUR_PAGE === 'sales') renderLogs(); else RENDER[CUR_PAGE]();
 }
 function deleteLog() {
+  if (!ensureAdmin()) return;
   const id = $('l-id').value; if (!id || !confirm('이 일지를 삭제할까요?')) return;
   DB.logs = DB.logs.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('logModal')).hide(); renderLogs();
@@ -859,6 +1027,7 @@ function saveSch() {
   RENDER[CUR_PAGE]();
 }
 function deleteSch() {
+  if (!ensureAdmin()) return;
   const id = $('s-id').value; if (!id || !confirm('이 일정을 삭제할까요?')) return;
   DB.schedules = DB.schedules.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('schModal')).hide(); RENDER[CUR_PAGE]();
@@ -990,6 +1159,7 @@ function saveQuote(doPrint) {
   if (doPrint) setTimeout(() => printQuote(qid), 350);
 }
 function deleteQuote() {
+  if (!ensureAdmin()) return;
   const id = $('q-id').value; if (!id || !confirm('이 견적서를 삭제할까요?')) return;
   DB.quotes = DB.quotes.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('quoteModal')).hide(); renderQuotes();
@@ -1123,6 +1293,7 @@ function saveCust() {
   renderCustomers();
 }
 function deleteCust() {
+  if (!ensureAdmin()) return;
   const id = $('c-id').value; if (!id) return;
   const n = DB.deals.filter(d => d.custId === id).length + DB.equipments.filter(e => e.custId === id).length;
   if (!confirm(`이 고객사를 삭제할까요?${n ? `\n연결된 딜·장비 ${n}건은 남습니다.` : ''}`)) return;
@@ -1329,6 +1500,7 @@ function saveEquip() {
   renderEquip();
 }
 function deleteEquip() {
+  if (!ensureAdmin()) return;
   const id = $('e-id').value; if (!id || !confirm('이 장비를 삭제할까요?')) return;
   DB.equipments = DB.equipments.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('equipModal')).hide(); renderEquip();
@@ -1393,6 +1565,7 @@ function saveProd() {
   renderProducts();
 }
 function deleteProd() {
+  if (!ensureAdmin()) return;
   const code = $('p-orig-code').value; if (!code) return;
   const used = DB.deals.filter(d => d.productCode === code).length + DB.equipments.filter(e => e.modelCode === code).length;
   if (!confirm(`이 제품을 삭제할까요?${used ? `\n연결된 딜·장비 ${used}건의 제품명은 그대로 남습니다.` : ''}`)) return;
@@ -1578,11 +1751,17 @@ function renderSettings() {
       <div style="font-size:11px;color:#94a3b8">${DB.deals.filter(d => d.stage === s.name).length}건</div></div>`).join('');
 
   let bytes = 0;
-  try { bytes = new Blob([localStorage.getItem(LS_KEY) || '']).size; } catch (e) {}
+  try { bytes = new Blob([localStorage.getItem(cacheKey()) || '']).size; } catch (e) {}
   const cnt = { 고객사: DB.customers.length, 딜: DB.deals.length, 상담일지: DB.logs.length,
     견적서: DB.quotes.length, 장비: DB.equipments.length, 제품: DB.products.length, 일정: DB.schedules.length };
-  $('storage-info').innerHTML = `저장 용량 ${(bytes / 1024).toFixed(1)} KB · `
-    + Object.entries(cnt).map(([k, v]) => `${k} ${v}`).join(' · ');
+  const counts = Object.entries(cnt).map(([k, v]) => `${k} ${v}`).join(' · ');
+  $('storage-info').innerHTML = isRemote()
+    ? `<span style="color:#15803d;font-weight:700"><i class="bi bi-cloud-check me-1"></i>서버 공유 모드</span>
+       — ${esc(String(CFG.SUPABASE_URL).replace(/^https?:\/\//, ''))}<br>${counts}
+       <br><span style="color:#94a3b8">로컬 캐시 ${(bytes / 1024).toFixed(1)} KB (오프라인 대비 사본)</span>`
+    : `<span style="color:#b45309;font-weight:700"><i class="bi bi-hdd me-1"></i>이 브라우저에만 저장</span>
+       — 저장 용량 ${(bytes / 1024).toFixed(1)} KB<br>${counts}`;
+  renderUsers();
 }
 function addRep() {
   const name = $('rep-name').value.trim();
@@ -1593,6 +1772,7 @@ function addRep() {
   save(); refreshSelects(); renderSettings();
 }
 function removeRep(i) {
+  if (!ensureAdmin()) return;
   const r = DB.reps[i]; if (!r) return;
   const n = DB.deals.filter(d => d.rep === r.name).length;
   if (!confirm(`${r.name} 담당자를 삭제할까요?${n ? `\n연결된 딜 ${n}건의 담당자명은 그대로 남습니다.` : ''}`)) return;
@@ -1616,9 +1796,10 @@ function importJSON(input) {
     try {
       const d = JSON.parse(fr.result);
       if (!d || !Array.isArray(d.customers)) throw new Error('형식 오류');
-      if (!confirm('현재 데이터를 파일 내용으로 완전히 교체합니다. 계속할까요?\n(먼저 JSON 내보내기로 백업하는 것을 권장합니다)')) return;
-      DB = d;
-      const b = blankDB(); Object.keys(b).forEach(k => { if (DB[k] == null) DB[k] = b[k]; });
+      if (!isEmptyDB() && !ensureAdmin()) return;   // 기존 데이터를 지워야 하므로 관리자만
+      if (!confirm((isRemote() ? '서버의 현재 데이터를' : '현재 데이터를')
+        + ' 파일 내용으로 완전히 교체합니다. 계속할까요?\n(먼저 JSON 내보내기로 백업하는 것을 권장합니다)')) return;
+      DB = d; fixShape();
       save(); refreshSelects(); RENDER[CUR_PAGE](); toast('데이터를 불러왔습니다');
     } catch (e) { alert('불러오기 실패: 올바른 UroLink CRM JSON 파일이 아닙니다.'); }
     input.value = '';
@@ -1674,10 +1855,16 @@ function exportEquip() {
   XLSX.writeFile(wb, `urolink-equipments-${today()}.xlsx`);
 }
 function loadSample() {
-  if (!confirm('현재 데이터를 모두 지우고 샘플(가상) 데이터를 다시 넣을까요?')) return;
-  DB = blankDB(); seed(); save(); refreshSelects(); RENDER[CUR_PAGE](); toast('샘플 데이터를 넣었습니다');
+  const empty = isEmptyDB();
+  if (!empty && !ensureAdmin()) return;   // 기존 데이터를 지워야 하므로 관리자만
+  if (!confirm(empty ? '샘플(가상) 데이터를 넣을까요?'
+    : '현재 데이터를 모두 지우고 샘플(가상) 데이터를 다시 넣을까요?')) return;
+  DB = blankDB(); seed(); fixShape();
+  BANNER_HIDDEN = false;
+  save(); refreshSelects(); RENDER[CUR_PAGE](); toast('샘플 데이터를 넣었습니다');
 }
 function clearSample() {
+  if (!ensureAdmin()) return;
   if (!confirm('샘플 데이터를 모두 삭제하고 빈 상태로 시작할까요?\n(담당자·제품 목록은 남겨둘 수 있습니다 — 다음 확인창에서 선택)')) return;
   const keep = confirm('담당자와 제품 카탈로그는 남길까요?\n확인=남김 / 취소=전부 삭제');
   const reps = DB.reps, prods = DB.products;
@@ -1686,6 +1873,7 @@ function clearSample() {
   save(); refreshSelects(); RENDER[CUR_PAGE](); toast('샘플 데이터를 삭제했습니다');
 }
 function resetAll() {
+  if (!ensureAdmin()) return;
   if (!confirm('모든 데이터를 삭제합니다. 되돌릴 수 없습니다. 계속할까요?')) return;
   if (!confirm('정말 삭제할까요? 먼저 JSON 내보내기로 백업하는 것을 권장합니다.')) return;
   DB = blankDB(); save(); refreshSelects(); RENDER[CUR_PAGE](); toast('전체 삭제했습니다');
@@ -1748,7 +1936,96 @@ function searchKey(e) {
   if (e.key === 'Enter') { e.preventDefault(); pickSearch(SEARCH_IDX >= 0 ? SEARCH_IDX : 0); }
 }
 
-/* ───────────────────────── 16. 초기화 ───────────────────────── */
+/* ───────────────────────── 16. 로그인 · 계정 ───────────────────────── */
+function lgMsg(msg, kind) {
+  const el = $('lg-msg');
+  el.textContent = msg || '';
+  el.className = msg ? (kind || 'err') : '';
+}
+function showLogin() {
+  document.body.classList.add('locked');
+  $('login-screen').classList.add('on');
+  const host = String(CFG.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+  $('lg-local').textContent = host ? '서버 ' + host : '';
+  setTimeout(() => $('lg-email').focus(), 100);
+}
+function hideLogin() {
+  document.body.classList.remove('locked');
+  $('login-screen').classList.remove('on');
+}
+async function doLogin() {
+  const email = $('lg-email').value.trim(), pw = $('lg-pw').value;
+  if (!email || !pw) return lgMsg('이메일과 비밀번호를 입력해주세요.');
+  $('lg-btn').disabled = true;
+  lgMsg('로그인 중...', 'ok');
+  const { data, error } = await SB.auth.signInWithPassword({ email, password: pw });
+  $('lg-btn').disabled = false;
+  if (error) {
+    const m = String(error.message || '');
+    return lgMsg(/invalid login|invalid credentials/i.test(m) ? '이메일 또는 비밀번호가 올바르지 않습니다.'
+      : /not confirmed/i.test(m) ? '이메일 확인이 완료되지 않은 계정입니다. 관리자에게 문의하세요.'
+      : m);
+  }
+  lgMsg('');
+  await afterLogin(data.session);
+}
+async function doLogout() {
+  if (!confirm('로그아웃할까요?')) return;
+  try { await SB.auth.signOut(); } catch (e) {}
+  location.reload();
+}
+async function afterLogin(session) {
+  const { data: p } = await SB.from('ul_profiles')
+    .select('id,email,display_name,role').eq('id', session.user.id).maybeSingle();
+  ME = p || { id: session.user.id, email: session.user.email,
+              display_name: String(session.user.email || '').split('@')[0], role: 'user' };
+  hideLogin();
+  await pullRemote(false);
+  startApp();
+}
+function renderAccountBox() {
+  const box = $('account-box');
+  if (!box) return;
+  if (!isRemote()) {
+    box.innerHTML = `<div class="mode-chip local" title="config.js 에 anon key 를 넣으면 서버 공유 모드가 됩니다">
+      <i class="bi bi-hdd"></i>이 브라우저에만 저장</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="mode-chip remote"><i class="bi bi-cloud-check"></i>서버 공유</div>
+    <div class="ab">
+      <i class="bi bi-person-circle" style="color:#94a3b8;font-size:15px"></i>
+      <span class="ab-name" title="${esc(ME ? ME.email : '')}">${esc(ME ? (ME.display_name || ME.email) : '')}</span>
+      ${ME && ME.role === 'admin' ? '<span class="ab-role">관리자</span>' : ''}
+      <button class="ab-out" onclick="doLogout()" title="로그아웃"><i class="bi bi-box-arrow-right"></i></button>
+    </div>`;
+}
+/* 사용자 관리 (관리자 전용) */
+async function renderUsers() {
+  const card = $('usermgmt-card');
+  if (!card) return;
+  if (!isRemote() || !isAdmin()) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const { data, error } = await SB.from('ul_profiles').select('*').order('created_at');
+  if (error) { $('user-list').innerHTML = `<div style="color:#dc2626;font-size:12.5px">목록을 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
+  $('user-list').innerHTML = (data || []).length ? `<table class="table table-sm mb-0">
+    <thead><tr><th>이름</th><th>이메일</th><th style="width:150px">역할</th><th>가입일</th></tr></thead>
+    <tbody>${data.map(u => `<tr>
+      <td class="fw-bold">${esc(u.display_name || '-')}${u.id === (ME && ME.id) ? ' <span style="font-size:10px;color:#94a3b8">(나)</span>' : ''}</td>
+      <td style="font-size:12px">${esc(u.email || '')}</td>
+      <td><select class="form-select form-select-sm" onchange="setUserRole('${esc(u.id)}',this.value)" ${u.id === (ME && ME.id) ? 'disabled title="본인 역할은 바꿀 수 없습니다"' : ''}>
+        <option value="user" ${u.role === 'user' ? 'selected' : ''}>일반 (삭제 불가)</option>
+        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자 (삭제 가능)</option></select></td>
+      <td style="font-size:12px;color:#64748b">${fmtDate(u.created_at)}</td></tr>`).join('')}</tbody></table>`
+    : `<div style="color:#94a3b8;font-size:12.5px">아직 발급된 계정이 없습니다.</div>`;
+}
+async function setUserRole(id, role) {
+  const { error } = await SB.from('ul_profiles').update({ role }).eq('id', id);
+  if (error) { alert('역할 변경 실패: ' + error.message); renderUsers(); return; }
+  toast('역할을 변경했습니다');
+  renderUsers();
+}
+
+/* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); }
   if (e.key === 'Escape') { closeSearch(); closeDrawer(); }
@@ -1757,11 +2034,35 @@ window.addEventListener('hashchange', () => {
   const p = location.hash.replace('#', '');
   if (p && PAGES.includes(p) && p !== CUR_PAGE) showPage(p);
 });
+/* 다른 탭·다른 사람의 변경을 반영: 탭으로 돌아올 때 다시 불러오기 */
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && isRemote() && !SYNCING) pullRemote(false);
+});
 
-(function init() {
-  load();
+function startApp() {
+  $('nav-refresh').style.display = isRemote() ? 'flex' : 'none';
+  renderAccountBox();
   refreshSelects();
   refreshCounts();
   const p = location.hash.replace('#', '');
   showPage(PAGES.includes(p) ? p : 'overview');
+}
+
+(async function boot() {
+  const hasCfg = CFG.SUPABASE_URL && CFG.SUPABASE_KEY;
+  if (hasCfg && window.supabase) {
+    MODE = 'remote';
+    SB = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
+    let session = null;
+    try { session = (await SB.auth.getSession()).data.session; } catch (e) {}
+    if (!session) { showLogin(); return; }
+    await afterLogin(session);
+    return;
+  }
+  if (hasCfg && !window.supabase) {
+    alert('Supabase 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.\n우선 이 브라우저 저장 모드로 실행합니다.');
+  }
+  MODE = 'local';
+  loadLocal();
+  startApp();
 })();

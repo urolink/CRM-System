@@ -201,6 +201,29 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .saving-toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:9999;display:none;box-shadow:0 4px 12px rgba(0,0,0,.2);align-items:center;gap:8px}
 .saving-toast.show{display:flex}
 
+/* ── 로그인 화면 ── */
+#login-screen{position:fixed;inset:0;z-index:5000;background:#0f172a;display:none;align-items:center;justify-content:center;padding:20px}
+#login-screen.on{display:flex}
+#login-card{width:100%;max-width:380px;background:#fff;border-radius:18px;padding:30px 28px;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+#login-card .lg-brand{display:flex;align-items:center;gap:11px;margin-bottom:24px}
+#login-card .lg-field{margin-bottom:14px}
+#login-card .lg-field label{font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;display:block}
+#login-card .lg-foot{font-size:11.5px;color:#94a3b8;margin-top:16px;text-align:center;line-height:1.6}
+#lg-msg{font-size:12px;margin-bottom:12px;display:none;padding:8px 11px;border-radius:8px}
+#lg-msg.err{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+#lg-msg.ok{display:block;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
+body.locked>.main,body.locked>.sidebar,body.locked>#m-bottomnav,body.locked>#pdf-fab,body.locked>.hamburger{display:none!important}
+
+/* ── 계정 영역(사이드바 하단) ── */
+#account-box .ab{display:flex;align-items:center;gap:9px;padding:8px 18px;font-size:12.5px}
+#account-box .ab-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#334155}
+#account-box .ab-role{font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 5px;background:#e6f4f8;color:#0e7490}
+#account-box .ab-out{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 2px;font-size:14px}
+#account-box .ab-out:hover{color:#dc2626}
+.mode-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;border-radius:5px;padding:2px 6px;margin:0 18px 4px}
+.mode-chip.remote{background:#f0fdf4;color:#15803d}
+.mode-chip.local{background:#fffbeb;color:#b45309}
+
 /* ── 샘플 데이터 배너 ── */
 #sample-banner{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:10px;margin-bottom:18px}
 #sample-banner button{margin-left:auto}

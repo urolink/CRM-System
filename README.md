@@ -26,13 +26,49 @@
 - 모바일: 햄버거 메뉴 + 하단 탭바
 - 우하단 `PDF` 버튼으로 현재 화면 인쇄/PDF 저장
 
-## 데이터 저장
+## 데이터 저장 — 두 가지 모드
 
-`localStorage` 키 **`urolink_crm_v1`** 하나에 전부 JSON으로 저장됩니다.
+`config.js`의 `SUPABASE_KEY` 값에 따라 자동으로 갈립니다.
 
-> **중요:** 데이터는 접속한 브라우저에만 남습니다. 다른 PC·다른 브라우저와 공유되지 않고,
-> 브라우저 데이터를 지우면 함께 사라집니다. **설정 · 데이터 → JSON 내보내기**로 주기적으로
-> 백업하세요. 여러 명이 같은 데이터를 함께 쓰려면 Supabase 같은 백엔드로 옮겨야 합니다.
+| | localStorage 모드 | 서버 공유 모드 |
+|---|---|---|
+| 조건 | `SUPABASE_KEY`가 빈 값 | `SUPABASE_KEY`가 채워짐 |
+| 로그인 | 없음 | 필수 (관리자 발급 계정) |
+| 데이터 | 이 브라우저에만 | 전원이 같은 데이터 공유 |
+| 삭제 권한 | 제한 없음 | 관리자만 |
+
+### 서버 공유 모드 켜기
+
+1. **테이블 생성** — Supabase 대시보드 → SQL Editor에 `migration.sql` 전체를 붙여넣고 실행
+2. **자유 회원가입 차단** — Authentication → Sign In / Providers → Email
+   - `Allow new users to sign up` **끄기** ← repo가 공개면 필수
+   - `Confirm email` 끄기
+3. **계정 발급** — Authentication → Users → Add user (Auto Confirm User 체크)
+   → `ul_profiles` 행이 트리거로 자동 생성됩니다
+4. **첫 관리자 지정** — SQL Editor에서
+   `update ul_profiles set role = 'admin' where email = '본인이메일';`
+5. **키 입력** — Settings → API Keys의 `anon` / `publishable` 값을 `config.js`에 붙여넣기
+
+이후 이름·역할 변경은 앱 안에서 **설정 · 데이터 → 사용자 · 접속 권한**으로 합니다.
+
+### 동기화 방식
+
+저장할 때 전체를 덮어쓰지 않습니다. 마지막 동기화 시점의 사본과 비교해 **바뀐 행만 upsert,
+없어진 행만 delete** 하므로, 두 사람이 서로 다른 건을 동시에 고쳐도 상대 데이터가 날아가지 않습니다.
+서버 저장이 실패하면(권한·네트워크) 로컬 사본은 유지되고 **다음 저장에서 자동 재시도**합니다.
+남이 바꾼 내용은 사이드바 **새로고침** 또는 탭으로 돌아올 때 자동으로 반영됩니다.
+
+### 보안 유의사항
+
+anon key는 공개되어도 되는 키지만, 그렇기 때문에 **RLS가 데이터를 지키는 유일한 장치**입니다.
+- `service_role`(secret) 키는 절대 `config.js`에 넣지 마세요. RLS를 전부 우회합니다.
+- repo를 공개로 두려면 위 2번(자유 회원가입 차단)을 반드시 적용하세요.
+  안 하면 누구나 가입해서 전 데이터를 열람·수정할 수 있습니다.
+
+### 백업
+
+두 모드 모두 **설정 · 데이터 → JSON 내보내기**로 전체를 파일로 받을 수 있습니다.
+서버 모드에서도 무료 플랜은 자동 백업이 없으니, 주기적으로 내려받아 두세요.
 
 ### 데이터 구조
 
@@ -63,9 +99,11 @@ reps       담당자    name, role
 ## 파일
 
 ```
-index.html   마크업 (사이드바 · 페이지 · 모달)
-app.css      디자인 시스템
-app.js       데이터 계층 + 렌더링 + 이벤트
+index.html     마크업 (로그인 · 사이드바 · 페이지 · 모달)
+app.css        디자인 시스템
+app.js         데이터 계층 + 렌더링 + 이벤트
+config.js      Supabase 접속 설정 (여기만 고치면 모드가 바뀝니다)
+migration.sql  Supabase 테이블 · RLS · 트리거 (1회 실행)
 ```
 
 CDN: Bootstrap 5.3, Bootstrap Icons 1.11, Chart.js 4.4, SheetJS(xlsx) 0.18 — 인터넷 연결이 필요합니다.
