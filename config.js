@@ -11,5 +11,5 @@
    ══════════════════════════════════════════════════════════════ */
 window.UROLINK_CONFIG = {
   SUPABASE_URL: 'https://gfbnbdhkgvwoiezoowyn.supabase.co',
-  SUPABASE_KEY: ''   // ← anon / publishable 키를 여기에 붙여넣으세요
+  SUPABASE_KEY: 'sb_publishable_IPuGSFecP5MlIIuQjqmUdQ_hg9s8KPQ'   // publishable(공개용) 키
 };

@@ -153,7 +153,8 @@ function syncing(on) {
   const el = $('footer-meta');
   if (!el) return;
   if (SYNCING) el.textContent = '서버 동기화 중...';
-  else refreshCounts();
+  else if (DB) refreshCounts();
+  else el.textContent = '';
 }
 
 /* ── 서버로 변경분만 밀어넣기 ── */
@@ -431,6 +432,7 @@ function toggleSidebar() { $('sidebar').classList.toggle('open'); $('sidebarOver
 function closeSidebar() { $('sidebar').classList.remove('open'); $('sidebarOverlay').classList.remove('open'); }
 
 function refreshCounts() {
+  if (!DB) return;   // 로그인 직후 서버 로드 이전(DB 미생성) 시점 방어
   $('cnt-deals').textContent  = DB.deals.filter(d => OPEN_STAGES.includes(d.stage)).length || '';
   $('cnt-sch').textContent    = DB.schedules.filter(s => !s.done && (dDays(s.date) ?? -99) >= 0).length || '';
   $('cnt-quotes').textContent = DB.quotes.length || '';
