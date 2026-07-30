@@ -82,9 +82,26 @@
   </div>
 
   <div class="sidebar-footer">
-    <a class="nav-link" onclick="openSearch()"><i class="bi bi-search"></i>통합 검색
-      <kbd style="font-size:9px;background:#e2e8f0;border:1px solid #cbd5e1;border-radius:4px;padding:1px 4px;color:#475569;margin-left:auto">Ctrl K</kbd></a>
-    <a class="nav-link" id="nav-refresh" onclick="pullRemote(true)" style="display:none"><i class="bi bi-arrow-repeat"></i>새로고침</a>
+    <div id="sidebar-tools">
+      <div class="sb-tool" onclick="openSearch()"><i class="bi bi-search"></i><span class="sb-lb">통합 검색</span>
+        <kbd style="font-size:9px;background:#e2e8f0;border:1px solid #cbd5e1;border-radius:4px;padding:1px 4px;color:#475569">Ctrl K</kbd></div>
+      <div class="sb-tool" id="nav-refresh" onclick="pullRemote(true)" style="display:none"><i class="bi bi-arrow-repeat"></i><span class="sb-lb">새로고침</span></div>
+      <div class="sb-tool" onclick="window.print()"><i class="bi bi-printer"></i><span class="sb-lb">인쇄 · PDF</span></div>
+    </div>
+    <div id="sidebar-user" style="display:none">
+      <div class="su-row">
+        <div class="su-avatar" id="su-avatar">?</div>
+        <div style="flex:1;min-width:0">
+          <div class="su-name" id="su-name">-</div>
+          <div class="su-id" id="su-id">-</div>
+          <div class="su-role" id="su-role"></div>
+        </div>
+      </div>
+      <div class="su-btns">
+        <button onclick="openPwModal()"><i class="bi bi-key"></i> 비밀번호</button>
+        <button onclick="doLogout()"><i class="bi bi-box-arrow-right"></i> 로그아웃</button>
+      </div>
+    </div>
     <div id="account-box"></div>
     <div style="padding:6px 18px 2px;font-size:11px;color:#94a3b8" id="footer-meta"></div>
   </div>
@@ -92,12 +109,6 @@
 
 <!-- ══════════ 메인 ══════════ -->
 <div class="main" id="main">
-
-  <div id="sample-banner" style="display:none">
-    <i class="bi bi-info-circle-fill"></i>
-    <span>샘플(가상) 데이터가 들어있습니다. 실제 데이터를 넣기 전에 지워주세요.</span>
-    <button class="btn btn-sm btn-outline-secondary" onclick="clearSample()">샘플 데이터 삭제</button>
-  </div>
 
   <!-- ────────── 종합 (매출현황) ────────── -->
   <div id="page-overview" class="page active">
@@ -323,33 +334,26 @@
 
   <!-- ────────── 일정 ────────── -->
   <div id="page-schedule" class="page">
-    <div class="wt-mast">
-      <div><div class="kick">UROLINK SCHEDULE</div><div class="t"><i class="bi bi-calendar-week me-2"></i>일정</div></div>
-      <div class="d-flex gap-2 align-items-center flex-wrap">
-        <select id="sch-rep" class="form-select form-select-sm" style="width:auto" onchange="renderSchedule()"><option value="">전체 담당자</option></select>
+    <div class="page-header">
+      <h5><i class="bi bi-calendar-week me-2"></i>일정 <span class="text-muted" style="font-size:12px;font-weight:400">· 누가 오늘 어디 가는지</span></h5>
+      <div class="d-flex flex-wrap" style="gap:6px">
         <button class="btn btn-primary btn-sm" onclick="openSchModal()"><i class="bi bi-plus-lg me-1"></i>일정 추가</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="openDaySum()"><i class="bi bi-clipboard-check me-1"></i>일 요약</button>
       </div>
     </div>
-    <div class="d-flex align-items-center gap-2 mb-3">
-      <button class="btn btn-outline-secondary btn-sm" onclick="schMove(-1)"><i class="bi bi-chevron-left"></i></button>
-      <div id="sch-title" style="font-size:16px;font-weight:800;min-width:150px;text-align:center"></div>
-      <button class="btn btn-outline-secondary btn-sm" onclick="schMove(1)"><i class="bi bi-chevron-right"></i></button>
-      <button class="btn btn-outline-secondary btn-sm" onclick="schToday()">오늘</button>
-      <div class="ms-auto d-flex gap-2 flex-wrap" style="font-size:11px" id="sch-legend"></div>
+    <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+      <div class="btn-group btn-group-sm" role="group">
+        <button id="sch-v-today" type="button" class="btn btn-outline-primary" onclick="setSchView('today',this)">오늘</button>
+        <button id="sch-v-week"  type="button" class="btn btn-outline-primary active" onclick="setSchView('week',this)">이번주</button>
+        <button id="sch-v-month" type="button" class="btn btn-outline-primary" onclick="setSchView('month',this)">월간</button>
+      </div>
+      <span id="sch-nav"></span>
+      <select id="sch-rep" class="form-select form-select-sm" style="max-width:180px" onchange="renderSchedule()"><option value="">👥 담당 전체</option></select>
+      <button class="btn btn-sm btn-outline-secondary" style="font-size:12px" onclick="schMine()"><i class="bi bi-person-check me-1"></i>내 일정</button>
+      <span id="sch-title" class="ms-2" style="font-size:13px;font-weight:700;color:#374151"></span>
     </div>
-    <div class="card p-3 mb-3">
-      <div id="cal-scroll"><div class="cal-grid" id="cal-grid"></div></div>
-    </div>
-    <div class="row g-3">
-      <div class="col-md-6"><div class="card p-0 h-100">
-        <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-calendar-check me-2" style="color:#0e7490"></i>오늘 일정</div>
-        <div id="sch-today" class="p-2"></div>
-      </div></div>
-      <div class="col-md-6"><div class="card p-0 h-100">
-        <div class="p-3 border-bottom fw-bold" style="font-size:14px"><i class="bi bi-clock-history me-2" style="color:#ea580c"></i>결과 미입력 (지난 일정)</div>
-        <div id="sch-pending" class="p-2"></div>
-      </div></div>
-    </div>
+    <div id="sch-stats"></div>
+    <div id="sch-body"></div>
   </div>
 
   <!-- ────────── 견적서 ────────── -->
@@ -651,6 +655,36 @@
     <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
     <button class="btn btn-primary" onclick="saveSch()">저장</button>
   </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 비밀번호 변경 ══════════ -->
+<div class="modal fade" id="pwModal" tabindex="-1"><div class="modal-dialog modal-sm"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title">비밀번호 변경</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div class="mb-3"><label class="form-label">새 비밀번호</label>
+      <input type="password" class="form-control" id="pw-new" autocomplete="new-password" placeholder="12자 이상 권장"></div>
+    <div class="mb-2"><label class="form-label">새 비밀번호 확인</label>
+      <input type="password" class="form-control" id="pw-new2" autocomplete="new-password" onkeydown="if(event.key==='Enter')doChangePw()"></div>
+    <div id="pw-msg" style="font-size:12px;display:none;padding:7px 10px;border-radius:7px"></div>
+    <div style="font-size:11.5px;color:#94a3b8;margin-top:8px">이 앱은 주소가 공개되어 있어 비밀번호가 유일한 잠금입니다. 짧은 숫자 비밀번호는 피해주세요.</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+    <button class="btn btn-primary" id="pw-btn" onclick="doChangePw()">변경</button>
+  </div>
+</div></div></div>
+
+<!-- ══════════ 모달: 일 요약 ══════════ -->
+<div class="modal fade" id="daySumModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title" id="daysum-title">일 요약</h5>
+    <div class="d-flex gap-2 align-items-center">
+      <input type="date" class="form-control form-control-sm" id="daysum-date" style="width:150px" onchange="renderDaySum()">
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i></button>
+      <button class="btn-close ms-1" data-bs-dismiss="modal"></button>
+    </div>
+  </div>
+  <div class="modal-body" id="daysum-body"></div>
 </div></div></div>
 
 <!-- ══════════ 모달: 일별 일정 ══════════ -->

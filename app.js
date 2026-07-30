@@ -466,50 +466,10 @@ function refreshCounts() {
   setCnt('cnt-cust',   DB.customers.length);
   setCnt('cnt-equip',  DB.equipments.length);
   setCnt('cnt-prod',   DB.products.length);
-  renderBanner();
   const u = DB.meta.updatedAt ? new Date(DB.meta.updatedAt) : null;
   $('footer-meta').textContent = u ? '최근 저장 ' + u.getFullYear() + '.' + pad(u.getMonth() + 1) + '.' + pad(u.getDate()) + ' ' + pad(u.getHours()) + ':' + pad(u.getMinutes()) : '';
 }
 
-let BANNER_HIDDEN = false;
-function renderBanner() {
-  const el = $('sample-banner');
-  if (!el) return;
-  if (BANNER_HIDDEN) { el.style.display = 'none'; return; }
-  if (isRemote() && isEmptyDB()) {
-    el.style.display = 'flex';
-    el.innerHTML = `<i class="bi bi-cloud-slash"></i>
-      <span>서버에 데이터가 없습니다. 제품·담당자부터 넣고 시작하거나, 화면을 먼저 둘러보려면 샘플을 넣어보세요.</span>
-      <button class="btn btn-sm btn-outline-secondary" onclick="seedBasics()">제품·담당자만 넣기</button>
-      <button class="btn btn-sm btn-outline-secondary" onclick="loadSample()">샘플 전체 넣기</button>
-      <button class="btn btn-sm btn-outline-secondary" onclick="dismissBanner()">닫기</button>`;
-    return;
-  }
-  if (hasSampleData()) {
-    el.style.display = 'flex';
-    el.innerHTML = `<i class="bi bi-info-circle-fill"></i>
-      <span>샘플(가상) 데이터가 들어있습니다. 실제 데이터를 넣기 전에 지워주세요.</span>
-      <button class="btn btn-sm btn-outline-secondary" onclick="clearSample()">샘플 데이터 삭제</button>`;
-    return;
-  }
-  el.style.display = 'none';
-}
-function dismissBanner() { BANNER_HIDDEN = true; renderBanner(); }
-/* 샘플 없이 제품 카탈로그 + 담당자만 채우기 */
-function seedBasics() {
-  const tmp = DB;
-  DB = blankDB(); seed();
-  const products = DB.products, reps = DB.reps;
-  DB = tmp;
-  DB.products = products; DB.reps = reps;
-  save();
-  refreshSelects();
-  BANNER_HIDDEN = true;
-  if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
-  toast('제품 ' + products.length + '종 · 담당자 ' + reps.length + '명을 넣었습니다');
-}
-
-/* 공통 select 채우기 */
 function refreshSelects() {
   const custOpts = DB.customers.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map(c => ({ v: c.id, l: c.name }));
   const prodOpts = DB.products.map(p => ({ v: p.code, l: p.name }));
@@ -1179,64 +1139,278 @@ function deleteLog() {
   save(); bootstrap.Modal.getInstance($('logModal')).hide(); renderLogs();
 }
 
-/* ───────────────────────── 8. 일정 ───────────────────────── */
-let SCH_Y = new Date().getFullYear(), SCH_M = new Date().getMonth() + 1;
-function schMove(n) { SCH_M += n; if (SCH_M < 1) { SCH_M = 12; SCH_Y--; } if (SCH_M > 12) { SCH_M = 1; SCH_Y++; } renderSchedule(); }
-function schToday() { SCH_Y = new Date().getFullYear(); SCH_M = new Date().getMonth() + 1; renderSchedule(); }
+/* ═══════════════ 8. 일정 (원텍 한국영업 3뷰 구조 이식) ═══════════════ */
+const SCH_COL = { '방문':'#0e7490', '전화':'#0891b2', '데모/시연':'#7c3aed', '설치':'#16a34a',
+                  'A/S':'#ea580c', '학회':'#a21caf', '내부':'#64748b' };
+const schCol = t => SCH_COL[t] || '#64748b';
+let SCH_VIEW = 'week';   /* today | week | month */
+let SCH_REF = null;      /* 기준일(null = 오늘) */
 
-function renderSchedule() {
+function schToday() { return today(); }
+function schWeekRange(ref) {
+  const base = parseD(ref || today()) || new Date();
+  const dow = (base.getDay() + 6) % 7;              /* 월요일 시작 */
+  const mon = new Date(base); mon.setDate(base.getDate() - dow);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return { start: ymd(mon), end: ymd(sun) };
+}
+function setSchView(v, btn) {
+  SCH_VIEW = v; SCH_REF = null;
+  document.querySelectorAll('#page-schedule .btn-group .btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderSchedule();
+}
+function schSyncViewBtn() {
+  const m = { today: 'sch-v-today', week: 'sch-v-week', month: 'sch-v-month' };
+  document.querySelectorAll('#page-schedule .btn-group .btn').forEach(b => b.classList.remove('active'));
+  const b = $(m[SCH_VIEW]); if (b) b.classList.add('active');
+}
+function schShift(d) {
+  const step = SCH_VIEW === 'week' ? 7 : SCH_VIEW === 'month' ? 0 : 1;
+  const base = parseD(SCH_REF || today());
+  if (SCH_VIEW === 'month') base.setMonth(base.getMonth() + d);
+  else base.setDate(base.getDate() + d * step);
+  SCH_REF = ymd(base);
+  renderSchedule();
+}
+function schNavBtns() {
+  return '<button class="btn btn-sm btn-outline-secondary" onclick="schShift(-1)"><i class="bi bi-chevron-left"></i></button> '
+    + '<button class="btn btn-sm btn-outline-secondary" onclick="SCH_REF=null;renderSchedule()">오늘</button> '
+    + '<button class="btn btn-sm btn-outline-secondary" onclick="schShift(1)"><i class="bi bi-chevron-right"></i></button>';
+}
+function schMine() {
+  const me = (ME && (ME.display_name || String(ME.email || '').split('@')[0])) || '';
+  const sel = $('sch-rep');
+  const hit = [...sel.options].find(o => o.value && (o.value === me || me.indexOf(o.value) >= 0 || o.value.indexOf(me) >= 0));
+  if (!hit) { toast('내 이름과 일치하는 담당자가 없습니다 (설정에서 담당자 등록)'); return; }
+  sel.value = hit.value;
+  renderSchedule();
+}
+function schItems() {
   const rep = $('sch-rep').value;
-  const all = DB.schedules.filter(s => !rep || s.rep === rep);
-  $('sch-title').textContent = SCH_Y + '년 ' + SCH_M + '월';
-  $('sch-legend').innerHTML = Object.keys(SCH_TYPES).map(t =>
-    `<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${SCH_TYPES[t]};margin-right:3px"></span>${esc(t)}</span>`).join('');
+  return DB.schedules.filter(s => !rep || s.rep === rep);
+}
 
-  const first = new Date(SCH_Y, SCH_M - 1, 1);
-  const startDow = first.getDay();
-  const lastDay = new Date(SCH_Y, SCH_M, 0).getDate();
+/* ── 통계바 (.cdud) ── */
+function schStatsBar(all) {
+  const td = today();
+  const dayRef = (SCH_VIEW === 'today' && SCH_REF) ? SCH_REF : td;
+  const navWk = !!SCH_REF && (SCH_VIEW === 'week' || SCH_VIEW === 'today');
+  const wk = schWeekRange(navWk ? SCH_REF : null);
+  const wkLbl = navWk ? (fmtDate(wk.start).slice(5) + '~' + fmtDate(wk.end).slice(5) + ' 일정') : '이번주 일정';
+
+  const tArr = all.filter(i => i.date === dayRef);
+  const t = tArr.length, tDone = tArr.filter(i => i.done).length, tVisit = tArr.filter(i => i.type === '방문').length;
+  const wArr = all.filter(i => i.date >= wk.start && i.date <= wk.end);
+  const w = wArr.length, wDone = wArr.filter(i => i.done).length, wVisit = wArr.filter(i => i.type === '방문').length;
+  const pendArr = all.filter(i => !i.done && i.date >= td);
+  const nextUp = pendArr.filter(i => i.date > td).map(i => i.date).sort()[0] || '';
+  const overdue = all.filter(i => !i.done && i.date < td).length;
+  const doneWk = wArr.filter(i => i.done);
+  const noRes = all.filter(i => i.done && !String(i.result || '').trim()).length;
+
+  const byType = {};
+  all.forEach(i => { byType[i.type] = (byType[i.type] || 0) + 1; });
+  const legend = Object.keys(SCH_COL).map(x =>
+    '<span style="font-size:10.5px;color:#64748b;font-weight:600"><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:'
+    + SCH_COL[x] + ';margin-right:4px;vertical-align:middle"></span>' + x
+    + (byType[x] ? ' <span style="color:#94a3b8">' + byType[x] + '</span>' : '') + '</span>').join('');
+
+  const sf = (lbl, n, sub, cl, click) => '<div class="cdud-fact' + (click ? ' clk" onclick="' + click + '"' : '"') + '>'
+    + '<span>' + lbl + '</span><b' + (cl ? ' class="' + cl + '"' : '') + '>' + n + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+
+  return '<div class="cdud" style="padding:16px 20px;margin:0 0 12px">'
+    + '<div class="cdud-kpis" style="border-bottom:0;padding:2px 0 4px">'
+    + '<div class="cdud-hero" style="flex:1.4" onclick="setSchView(\'week\',document.getElementById(\'sch-v-week\'))">'
+    + '<span class="l">' + wkLbl + '</span><b>' + w + '건</b>'
+    + '<span class="s">방문 ' + wVisit + ' · 완료 ' + wDone + '/' + w + (nextUp ? ' · 다음 예정 ' + fmtDate(nextUp).slice(5) : '') + '</span></div>'
+    + sf(dayRef === td ? '오늘' : fmtDate(dayRef).slice(5), t + '건', '방문 ' + tVisit + ' · 완료 ' + tDone, '', "setSchView('today',document.getElementById('sch-v-today'))")
+    + sf('놓친 일정', overdue + '건', overdue ? '눌러서 결과 입력' : '없음 👍', overdue ? 'rd' : '', overdue ? 'schOverdue()' : '')
+    + sf('예정', pendArr.length + '건', nextUp ? '다음 ' + fmtDate(nextUp).slice(5) : '오늘 이후', '', "setSchView('week',document.getElementById('sch-v-week'))")
+    + sf('완료', doneWk.length + '건', (navWk ? '선택 주' : '이번주') + (noRes ? ' · 결과누락 ' + noRes : ''), noRes ? '' : 'gr', '')
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding-top:10px;margin-top:6px;border-top:1px solid #e4e8ef">'
+    + '<span style="font-size:10.5px;color:#64748b;font-weight:700">유형</span>' + legend + '</div></div>';
+}
+
+/* ── 미니 카드 (주간/월간 셀) ── */
+function schMiniCard(s) {
+  return '<div class="sc-mini' + (s.done ? ' done' : '') + '" style="border-left-color:' + schCol(s.type) + '"'
+    + ' onclick="event.stopPropagation();openSchModal(\'' + s.id + '\')">'
+    + '<div class="m-c">' + esc(s.custId ? custName(s.custId) : '내부') + '</div>'
+    + '<div class="m-s">' + (s.time ? esc(s.time) + ' · ' : '') + esc(s.type) + (s.rep ? ' · ' + esc(s.rep) : '') + '</div></div>';
+}
+/* ── 주간 7열 그리드 ── */
+function schWeekGrid(items, wref) {
+  const wk = schWeekRange(wref || SCH_REF);
+  const mon = parseD(wk.start);
+  const WD = ['월','화','수','목','금','토','일'];
+  const byd = {};
+  items.forEach(i => { if (i.date >= wk.start && i.date <= wk.end) (byd[i.date] = byd[i.date] || []).push(i); });
+  const td = today();
+  let cols = '';
+  for (let idx = 0; idx < 7; idx++) {
+    const dt = new Date(mon); dt.setDate(mon.getDate() + idx);
+    const ds = ymd(dt), isT = ds === td;
+    const its = (byd[ds] || []).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+    const col = isT ? '#0e7490' : idx === 5 ? '#2563eb' : idx === 6 ? '#dc2626' : '#475569';
+    cols += '<div class="sw-col' + (isT ? ' today' : '') + '" title="이 날짜에 일정 추가" onclick="openSchModal(null,\'' + ds + '\')">'
+      + '<div class="sw-hd" style="color:' + col + '">' + WD[idx] + ' <span class="d">' + dt.getDate() + '일</span>'
+      + (isT ? ' <span style="font-size:9px">●오늘</span>' : '') + '</div>'
+      + '<div class="sw-body">' + (its.length ? its.map(schMiniCard).join('')
+        : '<div class="sw-empty"><i class="bi bi-plus-circle" style="opacity:.4"></i></div>') + '</div></div>';
+  }
+  return '<div class="sw-wrap"><div class="sw-grid">' + cols + '</div></div>';
+}
+/* ── 목록 뷰 (날짜별 카드) ── */
+function schListView(list) {
+  if (!list.length) return '<div class="text-center text-muted py-5" style="font-size:13px">'
+    + '<i class="bi bi-calendar-x" style="font-size:24px;color:#cbd5e1"></i>'
+    + '<div class="mt-2">일정이 없습니다. <b>일정 추가</b>로 방문·콜을 등록하세요.</div></div>';
+  const byd = {};
+  list.forEach(i => { (byd[i.date] = byd[i.date] || []).push(i); });
+  const WD = ['일','월','화','수','목','금','토'];
+  return Object.keys(byd).sort().map(d => {
+    const its = byd[d].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+    const wd = WD[(parseD(d) || new Date()).getDay()];
+    return '<div class="card mb-2"><div class="card-body p-0">'
+      + '<div class="sc-daybar">' + fmtDate(d).slice(5) + ' (' + wd + ') <span style="color:#64748b;font-weight:400">' + its.length + '건</span></div>'
+      + its.map(schItemRow).join('') + '</div></div>';
+  }).join('');
+}
+function schItemRow(s) {
+  const c = schCol(s.type);
+  const od = !s.done && s.date < today();
+  return '<div class="sc-row" onclick="openSchModal(\'' + s.id + '\')">'
+    + '<span style="width:44px;flex-shrink:0;color:#64748b;font-weight:600">' + esc(s.time || '-') + '</span>'
+    + '<span class="sc-type" style="background:' + c + '1a;color:' + c + '">' + esc(s.type) + '</span>'
+    + '<span style="width:140px;flex-shrink:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+    + esc(s.custId ? custName(s.custId) : '내부') + '</span>'
+    + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(s.title)
+    + (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : '') + '</span>'
+    + '<span style="width:50px;flex-shrink:0;color:#94a3b8;font-size:11px;text-align:right">' + esc(s.rep || '') + '</span>'
+    + (s.done ? '<span class="sc-type" style="background:#f0fdf4;color:#15803d">완료</span>'
+      : od ? '<span class="sc-type" style="background:#fef2f2;color:#dc2626">놓침</span>'
+      : '<span class="sc-type" style="background:#fff7ed;color:#ea580c">대기</span>') + '</div>';
+}
+/* ── 월간 달력 ── */
+function schMonthView(items) {
+  const base = parseD(SCH_REF || today()) || new Date();
+  const y = base.getFullYear(), m = base.getMonth() + 1;
+  const startDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;   /* 월요일 시작 */
+  const lastDay = new Date(y, m, 0).getDate();
+  const byd = {};
+  items.forEach(i => { (byd[i.date] = byd[i.date] || []).push(i); });
+  const WD = ['월','화','수','목','금','토','일'];
+  let html = WD.map((d, i) => '<div class="cal-dow" style="color:' + (i === 5 ? '#2563eb' : i === 6 ? '#dc2626' : '#475569') + '">' + d + '</div>').join('');
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= lastDay; d++) cells.push(d);
   while (cells.length % 7) cells.push(null);
-
-  const dows = ['일','월','화','수','목','금','토'];
-  let html = dows.map(d => `<div class="cal-dow">${d}</div>`).join('');
   cells.forEach((d, i) => {
-    if (d == null) { html += `<div class="cal-cell other"></div>`; return; }
-    const ds = `${SCH_Y}-${pad(SCH_M)}-${pad(d)}`;
-    const evs = all.filter(s => s.date === ds).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    if (d == null) { html += '<div class="cal-cell other"></div>'; return; }
+    const ds = y + '-' + pad(m) + '-' + pad(d);
+    const its = (byd[ds] || []).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
     const dow = i % 7;
-    html += `<div class="cal-cell ${ds === today() ? 'today' : ''}" onclick="openDayModal('${ds}')">
-      <div class="d ${dow === 0 ? 'sun' : dow === 6 ? 'sat' : ''}">${d}</div>
-      ${evs.slice(0, 3).map(s => `<div class="cal-ev ${s.done ? 'done' : ''}" style="background:${SCH_TYPES[s.type] || '#94a3b8'}1f;color:${SCH_TYPES[s.type] || '#64748b'}">${s.time ? esc(s.time) + ' ' : ''}${esc(s.custId ? custName(s.custId) : s.title)}</div>`).join('')}
-      ${evs.length > 3 ? `<div class="cal-more">+${evs.length - 3}건</div>` : ''}</div>`;
+    html += '<div class="cal-cell' + (ds === today() ? ' today' : '') + '" onclick="openDayModal(\'' + ds + '\')">'
+      + '<div class="d ' + (dow === 6 ? 'sun' : dow === 5 ? 'sat' : '') + '">' + d + '</div>'
+      + its.slice(0, 3).map(s => '<div class="cal-ev' + (s.done ? ' done' : '') + '" style="background:' + schCol(s.type)
+        + '1f;color:' + schCol(s.type) + '">' + (s.time ? esc(s.time) + ' ' : '') + esc(s.custId ? custName(s.custId) : s.title) + '</div>').join('')
+      + (its.length > 3 ? '<div class="cal-more">+' + (its.length - 3) + '건</div>' : '') + '</div>';
   });
-  $('cal-grid').innerHTML = html;
+  return '<div id="cal-scroll"><div class="cal-grid" id="cal-grid">' + html + '</div></div>';
+}
+let SCH_OVERDUE = false;
+function schOverdue() { SCH_OVERDUE = true; renderSchedule(); }
 
-  const tdList = all.filter(s => s.date === today()).sort((a, b) => String(a.time).localeCompare(String(b.time)));
-  $('sch-today').innerHTML = tdList.length ? tdList.map(s => schRow(s)).join('')
-    : `<div class="text-center" style="padding:24px;color:#94a3b8;font-size:13px">오늘 일정이 없습니다</div>`;
-  const pend = all.filter(s => !s.done && (dDays(s.date) ?? 0) < 0).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  $('sch-pending').innerHTML = pend.length ? pend.slice(0, 12).map(s => schRow(s, true)).join('')
-    : `<div class="text-center" style="padding:24px;color:#94a3b8;font-size:13px">미입력 일정이 없습니다</div>`;
+function renderSchedule() {
+  if (!$('sch-body')) return;
+  schSyncViewBtn();
+  fillSelect($('sch-rep'), repNames(), { blank: '👥 담당 전체', keep: true });
+  const all = schItems();
+  const repV = $('sch-rep').value;
+  $('sch-stats').innerHTML = schStatsBar(all);
+  const body = $('sch-body'), title = $('sch-title'), nav = $('sch-nav');
+  nav.innerHTML = ''; title.textContent = '';
+
+  if (SCH_OVERDUE) {
+    const list = all.filter(i => !i.done && i.date < today()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    title.innerHTML = '<span style="color:#dc2626">놓친 일정</span> ' + list.length + '건'
+      + (repV ? ' · ' + esc(repV) : '')
+      + ' <button class="btn btn-sm btn-link p-0 ms-2" style="font-size:12px" onclick="SCH_OVERDUE=false;renderSchedule()">전체 보기로 돌아가기</button>';
+    body.innerHTML = schListView(list);
+    return;
+  }
+  if (SCH_VIEW === 'month') {
+    const base = parseD(SCH_REF || today()) || new Date();
+    title.textContent = base.getFullYear() + '년 ' + (base.getMonth() + 1) + '월 · '
+      + all.filter(i => String(i.date).slice(0, 7) === base.getFullYear() + '-' + pad(base.getMonth() + 1)).length + '건'
+      + (repV ? ' · ' + repV : '');
+    nav.innerHTML = schNavBtns();
+    body.innerHTML = schMonthView(all);
+  } else if (SCH_VIEW === 'week') {
+    const wk = schWeekRange(SCH_REF);
+    const isCur = today() >= wk.start && today() <= wk.end;
+    title.textContent = (isCur ? '이번주 ' : '') + fmtDate(wk.start).slice(5) + '~' + fmtDate(wk.end).slice(5)
+      + ' · ' + all.filter(i => i.date >= wk.start && i.date <= wk.end).length + '건' + (repV ? ' · ' + repV : '');
+    nav.innerHTML = schNavBtns();
+    body.innerHTML = schWeekGrid(all);
+  } else {
+    const ref = SCH_REF || today();
+    const list = all.filter(i => i.date === ref);
+    const WDD = ['일','월','화','수','목','금','토'][(parseD(ref) || new Date()).getDay()];
+    title.textContent = (ref === today() ? '오늘 ' : '') + fmtDate(ref).slice(5) + ' (' + WDD + ') · ' + list.length + '건' + (repV ? ' · ' + repV : '');
+    nav.innerHTML = schNavBtns();
+    body.innerHTML = schListView(list);
+  }
 }
-function schRow(s, showDate) {
-  return `<div onclick="openSchModal('${s.id}')" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;border-bottom:1px solid #f3f4f6">
-    <span style="width:6px;height:30px;border-radius:3px;background:${SCH_TYPES[s.type] || '#94a3b8'};flex-shrink:0"></span>
-    <div style="width:${showDate ? 72 : 44}px;flex-shrink:0;font-size:11.5px;color:#64748b;font-weight:600">${showDate ? fmtDate(s.date) : (s.time || '-')}</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.custId ? custName(s.custId) : '내부')} <span style="font-weight:400;color:#94a3b8">· ${esc(s.type)}</span></div>
-      <div style="font-size:11.5px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.title)}</div></div>
-    ${s.done ? '<span class="dc-flag" style="background:#f0fdf4;color:#15803d">완료</span>' : '<span class="dc-flag td">대기</span>'}
-    <span style="width:44px;text-align:right;font-size:11px;color:#94a3b8">${esc(s.rep || '')}</span></div>`;
+
+/* ── 일 요약 ── */
+function openDaySum() {
+  $('daysum-date').value = SCH_REF || today();
+  renderDaySum();
+  new bootstrap.Modal($('daySumModal')).show();
 }
+function renderDaySum() {
+  const d = $('daysum-date').value || today();
+  const WDD = ['일','월','화','수','목','금','토'][(parseD(d) || new Date()).getDay()];
+  $('daysum-title').textContent = '일 요약 · ' + fmtDate(d) + ' (' + WDD + ')';
+  const sch = DB.schedules.filter(s => s.date === d);
+  const logs = DB.logs.filter(l => l.date === d);
+  const deals = DB.deals.filter(x => x.expectedDate === d && x.stage === '계약완료');
+  const reps = [...new Set([].concat(sch.map(s => s.rep), logs.map(l => l.rep)).filter(Boolean))];
+  const byRep = reps.map(r => {
+    const ss = sch.filter(s => s.rep === r), ll = logs.filter(l => l.rep === r);
+    return '<div style="border:1px solid var(--border);border-radius:10px;padding:11px 13px;margin-bottom:8px">'
+      + '<div style="font-size:13px;font-weight:800;margin-bottom:6px">' + esc(r)
+      + ' <span style="font-size:11px;font-weight:500;color:#64748b">일정 ' + ss.length + ' · 상담 ' + ll.length + '</span></div>'
+      + (ss.length ? ss.map(s => '<div style="font-size:12px;padding:3px 0;color:#334155">'
+          + '<span style="color:' + schCol(s.type) + ';font-weight:700">[' + esc(s.type) + ']</span> '
+          + esc(s.custId ? custName(s.custId) : '내부') + ' — ' + esc(s.title)
+          + (s.done ? (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : ' <span style="color:#15803d">(완료)</span>')
+                    : ' <span style="color:#ea580c">(대기)</span>') + '</div>').join('') : '')
+      + (ll.length ? ll.map(l => '<div style="font-size:12px;padding:3px 0;color:#64748b">'
+          + '<i class="bi bi-journal-text me-1"></i>' + esc(custName(l.custId)) + ' — ' + esc(l.content) + '</div>').join('') : '')
+      + '</div>';
+  }).join('');
+  $('daysum-body').innerHTML = '<div class="cdud" style="padding:16px 20px;margin:0 0 14px">'
+    + '<div class="cdud-kpis" style="border-bottom:0;padding:2px 0 4px">'
+    + '<div class="cdud-hero" style="cursor:default"><span class="l">일정</span><b>' + sch.length + '건</b>'
+    + '<span class="s">완료 ' + sch.filter(s => s.done).length + ' · 대기 ' + sch.filter(s => !s.done).length + '</span></div>'
+    + '<div class="cdud-fact"><span>방문</span><b>' + sch.filter(s => s.type === '방문').length + '</b></div>'
+    + '<div class="cdud-fact"><span>상담일지</span><b>' + logs.length + '</b></div>'
+    + '<div class="cdud-fact"><span>당일 수주</span><b class="gr">' + money(deals.reduce((s, x) => s + num(x.amount), 0)) + '</b>'
+    + '<i>' + deals.length + '건</i></div></div></div>'
+    + (byRep || '<div class="text-center text-muted py-4" style="font-size:13px">해당 일자 기록이 없습니다</div>');
+}
+
 let DAY_SEL = null;
 function openDayModal(ds) {
   DAY_SEL = ds;
   const rep = $('sch-rep').value;
   const evs = DB.schedules.filter(s => s.date === ds && (!rep || s.rep === rep)).sort((a, b) => String(a.time).localeCompare(String(b.time)));
   $('day-modal-title').textContent = fmtDate(ds) + ' 일정 (' + evs.length + ')';
-  $('day-modal-body').innerHTML = evs.length ? evs.map(s => schRow(s)).join('')
+  $('day-modal-body').innerHTML = evs.length ? evs.map(s => schItemRow(s)).join('')
     : `<div class="text-center" style="padding:24px;color:#94a3b8;font-size:13px">일정이 없습니다</div>`;
   new bootstrap.Modal($('dayModal')).show();
 }
@@ -1244,13 +1418,13 @@ function addSchForDay() {
   bootstrap.Modal.getInstance($('dayModal')).hide();
   setTimeout(() => { openSchModal(); $('s-date').value = DAY_SEL || today(); }, 300);
 }
-function openSchModal(id) {
+function openSchModal(id, preDate) {
   refreshSelects();
   const s = id ? DB.schedules.find(x => x.id === id) : null;
   $('sch-modal-title').textContent = s ? '일정 수정' : '일정 추가';
   $('s-del-btn').style.display = s ? 'inline-block' : 'none';
   $('s-id').value = s ? s.id : '';
-  $('s-date').value = s ? s.date : today();
+  $('s-date').value = s ? s.date : (preDate || today());
   $('s-time').value = s ? (s.time || '') : '';
   $('s-cust').value = s ? (s.custId || '') : '';
   $('s-type').value = s ? s.type : '방문';
@@ -2107,7 +2281,6 @@ function loadSample() {
   if (!confirm(empty ? '샘플(가상) 데이터를 넣을까요?'
     : '현재 데이터를 모두 지우고 샘플(가상) 데이터를 다시 넣을까요?')) return;
   DB = blankDB(); seed(); fixShape();
-  BANNER_HIDDEN = false;
   save(); refreshSelects(); RENDER[CUR_PAGE](); toast('샘플 데이터를 넣었습니다');
 }
 function clearSample() {
@@ -2231,20 +2404,48 @@ async function afterLogin(session) {
   startApp();
 }
 function renderAccountBox() {
-  const box = $('account-box');
-  if (!box) return;
+  const box = $('account-box'), card = $('sidebar-user');
+  if (!box || !card) return;
   if (!isRemote()) {
-    box.innerHTML = `<div class="mode-chip local" title="config.js 에 anon key 를 넣으면 서버 공유 모드가 됩니다">
-      <i class="bi bi-hdd"></i>이 브라우저에만 저장</div>`;
+    card.style.display = 'none';
+    box.innerHTML = '<div class="mode-chip local" title="config.js 에 anon key 를 넣으면 서버 공유 모드가 됩니다">'
+      + '<i class="bi bi-hdd"></i>이 보라우자에만 저장</div>';
     return;
   }
-  box.innerHTML = `<div class="mode-chip remote"><i class="bi bi-cloud-check"></i>서버 공유</div>
-    <div class="ab">
-      <i class="bi bi-person-circle" style="color:#94a3b8;font-size:15px"></i>
-      <span class="ab-name" title="${esc(ME ? ME.email : '')}">${esc(ME ? (ME.display_name || ME.email) : '')}</span>
-      ${ME && ME.role === 'admin' ? '<span class="ab-role">관리자</span>' : ''}
-      <button class="ab-out" onclick="doLogout()" title="로그아웃"><i class="bi bi-box-arrow-right"></i></button>
-    </div>`;
+  const nm = (ME && (ME.display_name || String(ME.email || '').split('@')[0])) || '-';
+  box.innerHTML = '<div class="mode-chip remote"><i class="bi bi-cloud-check"></i>서버 공유</div>';
+  card.style.display = 'block';
+  $('su-avatar').textContent = nm.slice(0, 1);
+  $('su-name').textContent = nm;
+  $('su-id').textContent = (ME && ME.email) || '';
+  $('su-role').innerHTML = (ME && ME.role === 'admin')
+    ? '<span style="color:#0e7490;font-weight:700">관리자</span> · 삭제 가능'
+    : '일반 · 삭제 불가';
+}
+/* 보안: 버밀번호 변경 */
+function openPwModal() {
+  $('pw-new').value = ''; $('pw-new2').value = '';
+  $('pw-msg').style.display = 'none';
+  new bootstrap.Modal($('pwModal')).show();
+}
+function pwMsg(m, ok) {
+  const el = $('pw-msg');
+  el.textContent = m;
+  el.style.display = m ? 'block' : 'none';
+  el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+  el.style.color = ok ? '#15803d' : '#b91c1c';
+  el.style.border = '1px solid ' + (ok ? '#bbf7d0' : '#fecaca');
+}
+async function doChangePw() {
+  const a = $('pw-new').value, b = $('pw-new2').value;
+  if (a.length < 8) return pwMsg('8자 이상으로 정해주세요.');
+  if (a !== b) return pwMsg('다시 입력한 버밀번호가 달릅니다.');
+  $('pw-btn').disabled = true;
+  const { error } = await SB.auth.updateUser({ password: a });
+  $('pw-btn').disabled = false;
+  if (error) return pwMsg(error.message);
+  pwMsg('변경되었습니다.', true);
+  setTimeout(function () { const m = bootstrap.Modal.getInstance($('pwModal')); if (m) m.hide(); }, 1200);
 }
 /* 사용자 관리 (관리자 전용) */
 async function renderUsers() {
