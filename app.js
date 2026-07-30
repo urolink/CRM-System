@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730c';
+const APP_VERSION = '20260730d';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2370,14 +2370,6 @@ function renderAnalysis() {
 
 /* ───────────────────────── 14. 설정 · 데이터 ───────────────────────── */
 function renderSettings() {
-  /* 계정 발급 링크 */
-  const link = $('sb-users-link');
-  if (link) {
-    const ref = String(CFG.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
-    link.href = ref ? 'https://supabase.com/dashboard/project/' + ref + '/auth/users' : '#';
-    link.style.display = (isRemote() && isAdmin()) ? 'inline-block' : 'none';
-  }
-
   /* 상단 요약 */
   const kpi = $('user-kpi');
   if (kpi) {
@@ -2654,6 +2646,13 @@ async function afterLogin(session) {
     .select('id,email,display_name,role').eq('id', session.user.id).maybeSingle();
   ME = p || { id: session.user.id, email: session.user.email,
               display_name: String(session.user.email || '').split('@')[0], role: 'user' };
+  if (p && p.active === false) {
+    await SB.auth.signOut();
+    ME = null;
+    showLogin();
+    lgMsg('접속이 차단된 계정입니다. 관리자에게 문의해주세요.');
+    return;
+  }
   hideLogin();
   await pullRemote(false);
   startApp();
@@ -2703,48 +2702,209 @@ async function doChangePw() {
   setTimeout(function () { const m = bootstrap.Modal.getInstance($('pwModal')); if (m) m.hide(); }, 1200);
 }
 /* 사용자 관리 (관리자 전용) */
+let U_ACTIVE = true;          /* 사용자 목록 탭: 활성 / 비활성 */
+let U_ROWS = [];
+function userTab(on, el) {
+  U_ACTIVE = on;
+  document.querySelectorAll('#usermgmt-card .wt-tab').forEach(b => b.classList.remove('on'));
+  if (el) el.classList.add('on');
+  paintUsers();
+}
 async function renderUsers() {
-  const card = $('usermgmt-card'), none = $('usermgmt-none');
+  const card = $('usermgmt-card');
   if (!card) return;
-  if (!isRemote()) { card.style.display = 'none'; if (none) none.style.display = 'none'; return; }
-  if (!isAdmin()) { card.style.display = 'none'; if (none) none.style.display = 'block'; return; }
-  if (none) none.style.display = 'none';
-  card.style.display = 'block';
-  const { data, error } = await SB.from('ul_profiles').select('*').order('created_at');
-  if (error) {
-    $('user-list').innerHTML = '<div style="color:#dc2626;font-size:12.5px">목록을 불러오지 못했습니다: ' + esc(error.message) + '</div>';
+  const addBtn = $('add-user-btn');
+  if (!isRemote() || !isAdmin()) {
+    card.style.display = 'none';
+    if (addBtn) addBtn.style.display = 'none';
     return;
   }
-  const rows = data || [];
-  $('user-list').innerHTML = rows.length ? '<div style="overflow-x:auto"><table class="table table-sm mb-0">'
-    + '<thead><tr><th style="min-width:150px">이름</th><th>이메일</th><th style="width:170px">역할</th><th style="width:110px">가입일</th></tr></thead><tbody>'
-    + rows.map(u => {
-        const me = u.id === (ME && ME.id);
-        return '<tr><td><input type="text" class="form-control form-control-sm" style="max-width:150px" value="'
-          + esc(u.display_name || '') + '" onchange="setUserName(\'' + esc(u.id) + '\',this.value)">'
-          + (me ? '<div style="font-size:10px;color:#0e7490;font-weight:700;margin-top:2px">내 계정</div>' : '') + '</td>'
-          + '<td style="font-size:12px;color:#475569">' + esc(u.email || '') + '</td>'
-          + '<td><select class="form-select form-select-sm" onchange="setUserRole(\'' + esc(u.id) + '\',this.value)"'
-          + (me ? ' disabled title="본인 역할은 바꿀 수 없습니다"' : '') + '>'
-          + '<option value="user"' + (u.role === 'user' ? ' selected' : '') + '>일반 · 조회/입력</option>'
-          + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자 · 삭제 가능</option></select></td>'
-          + '<td style="font-size:12px;color:#64748b">' + fmtDate(u.created_at) + '</td></tr>';
-      }).join('') + '</tbody></table></div>'
-    : '<div style="color:#94a3b8;font-size:12.5px">아직 발급된 계정이 없습니다.</div>';
+  if (addBtn) addBtn.style.display = 'inline-block';
+  card.style.display = 'block';
+  const { data, error } = await SB.from('ul_profiles').select('*').order('dept').order('created_at');
+  if (error) {
+    $('user-list').innerHTML = '<div class="p-3" style="color:#dc2626;font-size:12.5px">목록을 불러오지 못했습니다: ' + esc(error.message) + '</div>';
+    return;
+  }
+  U_ROWS = data || [];
+  /* 부서·직급 자동완성 */
+  fillDatalist('dl-dept', [...new Set(U_ROWS.map(u => u.dept).filter(Boolean))]);
+  fillDatalist('dl-pos', [...new Set(U_ROWS.map(u => u.position).filter(Boolean))]);
+  paintUsers();
 }
-async function setUserName(id, v) {
-  const nm = trimv(v);
-  if (!nm) { toast('이름을 비울 수 없습니다'); renderUsers(); return; }
-  const { error } = await SB.from('ul_profiles').update({ display_name: nm }).eq('id', id);
-  if (error) { alert('이름 변경 실패: ' + error.message); renderUsers(); return; }
-  if (ME && ME.id === id) { ME.display_name = nm; renderAccountBox(); }
-  toast('이름을 변경했습니다');
+function paintUsers() {
+  const q = trimv(($('u-search') || {}).value).toLowerCase();
+  let rows = U_ROWS.filter(u => (u.active !== false) === U_ACTIVE);
+  if (q) rows = rows.filter(u => ((u.display_name || '') + ' ' + (u.email || '') + ' '
+    + (u.dept || '') + ' ' + (u.position || '')).toLowerCase().includes(q));
+  const onCnt = U_ROWS.filter(u => u.active !== false).length;
+  const offCnt = U_ROWS.length - onCnt;
+  if ($('u-tab-on')) $('u-tab-on').textContent = '활성 ' + onCnt;
+  if ($('u-tab-off')) $('u-tab-off').textContent = '비활성 ' + offCnt;
+
+  if (!rows.length) {
+    $('user-list').innerHTML = '<div class="p-4 text-center" style="color:#94a3b8;font-size:13px">'
+      + (q ? '검색 결과가 없습니다' : U_ACTIVE ? '활성 계정이 없습니다' : '비활성 계정이 없습니다') + '</div>';
+    return;
+  }
+  /* 부서별 그룹 */
+  const grps = [];
+  rows.forEach(u => { const d = u.dept || '미지정'; if (!grps.includes(d)) grps.push(d); });
+  const body = grps.map(g => {
+    const list = rows.filter(u => (u.dept || '미지정') === g);
+    return '<tr class="u-grp"><td colspan="6"><i class="bi bi-building me-1"></i>' + esc(g)
+      + '<span class="cnt">' + list.length + '명</span></td></tr>'
+      + list.map(u => {
+        const me = u.id === (ME && ME.id);
+        const off = u.active === false;
+        return '<tr>'
+          + '<td><div style="font-weight:700;font-size:13px">' + esc(u.display_name || '-')
+            + (me ? ' <span class="u-badge usr">나</span>' : '')
+            + (off ? ' <span class="u-badge off">비활성</span>' : '') + '</div>'
+            + '<div style="font-size:11.5px;color:#64748b">' + esc(u.email || '') + '</div></td>'
+          + '<td><input type="text" class="form-control form-control-sm" style="max-width:130px" value="' + esc(u.dept || '')
+            + '" placeholder="부서" onchange="setUserField(\'' + esc(u.id) + '\',\'dept\',this.value)"></td>'
+          + '<td><input type="text" class="form-control form-control-sm" style="max-width:110px" value="' + esc(u.position || '')
+            + '" placeholder="직급" onchange="setUserField(\'' + esc(u.id) + '\',\'position\',this.value)"></td>'
+          + '<td><select class="form-select form-select-sm" style="max-width:150px"'
+            + (me ? ' disabled title="본인 역할은 바꿀 수 없습니다"' : '')
+            + ' onchange="setUserRole(\'' + esc(u.id) + '\',this.value)">'
+            + '<option value="user"' + (u.role === 'user' ? ' selected' : '') + '>일반</option>'
+            + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자</option></select></td>'
+          + '<td style="font-size:11.5px;color:#64748b">' + fmtDate(u.created_at) + '</td>'
+          + '<td class="text-end" style="white-space:nowrap">'
+            + '<button class="btn btn-sm btn-outline-secondary" onclick="sendReset(\'' + esc(u.email) + '\')" title="비밀번호 재설정 메일 발송"><i class="bi bi-envelope"></i> 비번</button>'
+            + (me ? '' : ' <button class="btn btn-sm ' + (off ? 'btn-outline-success' : 'btn-outline-danger')
+                + '" onclick="setUserActive(\'' + esc(u.id) + '\',' + (off ? 'true' : 'false') + ')">'
+                + (off ? '<i class="bi bi-arrow-counterclockwise"></i> 복구' : '<i class="bi bi-slash-circle"></i> 차단') + '</button>')
+          + '</td></tr>';
+      }).join('');
+  }).join('');
+  $('user-list').innerHTML = '<div style="overflow-x:auto"><table class="table table-hover mb-0">'
+    + '<thead><tr><th>이름 · 이메일</th><th>부서</th><th>직급</th><th>역할</th><th>가입일</th><th></th></tr></thead>'
+    + '<tbody>' + body + '</tbody></table></div>';
+}
+async function setUserField(id, field, v) {
+  const upd = {}; upd[field] = trimv(v) || null;
+  const { error } = await SB.from('ul_profiles').update(upd).eq('id', id);
+  if (error) { alert('수정 실패: ' + error.message); renderUsers(); return; }
+  toast('수정했습니다');
+  renderUsers();
 }
 async function setUserRole(id, role) {
   const { error } = await SB.from('ul_profiles').update({ role }).eq('id', id);
   if (error) { alert('역할 변경 실패: ' + error.message); renderUsers(); return; }
-  toast('역할을 변경했습니다');
+  toast('역할을 ' + (role === 'admin' ? '관리자' : '일반') + '로 변경했습니다');
   renderUsers();
+}
+async function setUserActive(id, on) {
+  const u = U_ROWS.find(x => x.id === id) || {};
+  if (!on && !confirm((u.display_name || u.email) + ' 계정의 접속을 차단할까요?\n\n로그인해도 데이터를 조회·수정할 수 없게 됩니다.\n(계정 자체는 남아 있어 언제든 복구 가능합니다)')) return;
+  const { error } = await SB.from('ul_profiles').update({ active: on }).eq('id', id);
+  if (error) { alert('변경 실패: ' + error.message); return; }
+  toast(on ? '접속을 복구했습니다' : '접속을 차단했습니다');
+  renderUsers();
+}
+async function sendReset(email) {
+  if (!email) return;
+  if (!confirm(email + ' 로 비밀번호 재설정 메일을 보낼까요?')) return;
+  const { error } = await SB.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+  if (error) { alert('발송 실패: ' + error.message); return; }
+  toast('재설정 메일을 보냈습니다');
+}
+
+/* ══ 사용자 추가 (앱 안에서 계정 발급) ══
+   1) ul_invites 에 이메일 등록 — 허용목록 트리거가 이 이메일만 가입을 통과시킨다
+   2) 세션을 저장하지 않는 별도 클라이언트로 signUp — 관리자 로그인이 풀리지 않게
+   3) 트리거가 만든 ul_profiles 행에 이름·부서·직급·역할을 채운다 */
+let U_ROLE = 'user';
+function pickRole(r, el) {
+  U_ROLE = r;
+  document.querySelectorAll('#u-role-cards .role-card').forEach(c => c.classList.remove('on'));
+  if (el) el.classList.add('on');
+}
+function genTempPw() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ', b = 'abcdefghijkmnpqrstuvwxyz', c = '23456789', d = '!@#$%';
+  const pick = (set, k) => Array.from({ length: k }, (_, i) => set[(Date.now() + i * 7919 + Math.floor(performance.now() * 1000)) % set.length]).join('');
+  $('u-pw').value = pick(a, 2) + pick(b, 5) + pick(c, 3) + pick(d, 1);
+}
+function uMsg(m, ok) {
+  const el = $('u-msg');
+  el.innerHTML = m || '';
+  el.style.display = m ? 'block' : 'none';
+  el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+  el.style.color = ok ? '#15803d' : '#b91c1c';
+  el.style.border = '1px solid ' + (ok ? '#bbf7d0' : '#fecaca');
+}
+function openUserModal() {
+  if (!isRemote() || !isAdmin()) return;
+  ['u-email','u-pw','u-name','u-dept','u-position'].forEach(id => { $(id).value = ''; });
+  $('u-as-rep').checked = true;
+  pickRole('user', document.querySelector('#u-role-cards .role-card[data-role="user"]'));
+  genTempPw();
+  uMsg('');
+  new bootstrap.Modal($('userModal')).show();
+}
+async function createUser() {
+  const email = trimv($('u-email').value).toLowerCase();
+  const pw = trimv($('u-pw').value);
+  const name = trimv($('u-name').value);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return uMsg('이메일 형식을 확인해주세요.');
+  if (pw.length < 8) return uMsg('임시 비밀번호는 8자 이상이어야 합니다.');
+  if (!name) return uMsg('이름을 입력해주세요.');
+  if (U_ROWS.some(u => String(u.email || '').toLowerCase() === email)) return uMsg('이미 등록된 이메일입니다.');
+
+  $('u-btn').disabled = true;
+  uMsg('계정을 만들고 있습니다...', true);
+
+  /* 1) 허용목록 등록 */
+  const inv = await SB.from('ul_invites').upsert({ email, invited_by: ME ? ME.id : null });
+  if (inv.error) {
+    $('u-btn').disabled = false;
+    return uMsg(/relation .*ul_invites/i.test(inv.error.message)
+      ? 'migration_v2.sql 을 먼저 실행해주세요 (허용목록 테이블이 없습니다).'
+      : '허용목록 등록 실패: ' + esc(inv.error.message));
+  }
+
+  /* 2) 관리자 세션을 건드리지 않는 임시 클라이언트로 가입 */
+  let uid = null;
+  try {
+    const tmp = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+    const { data, error } = await tmp.auth.signUp({ email, password: pw });
+    if (error) throw error;
+    uid = data && data.user && data.user.id;
+    if (!uid) throw new Error('계정 id 를 받지 못했습니다');
+  } catch (e) {
+    $('u-btn').disabled = false;
+    const m = String(e.message || '');
+    if (/signup.*disabled|not allowed/i.test(m)) {
+      return uMsg('Supabase 설정에서 <b>Allow new users to sign up</b> 을 켜주세요.<br>'
+        + '(허용목록 트리거가 등록되지 않은 이메일을 막으므로 안전합니다)');
+    }
+    if (/already registered|already exists/i.test(m)) return uMsg('이미 가입된 이메일입니다.');
+    return uMsg('가입 실패: ' + esc(m));
+  }
+
+  /* 3) 프로필 보강 (트리거가 만든 행을 갱신) */
+  const prof = { display_name: name, dept: trimv($('u-dept').value) || null,
+    position: trimv($('u-position').value) || null, role: U_ROLE, active: true };
+  const up = await SB.from('ul_profiles').update(prof).eq('id', uid);
+  if (up.error) console.error('[createUser/profile]', up.error);
+
+  /* 4) 영업 담당자 명단에도 추가 */
+  if ($('u-as-rep').checked && !DB.reps.some(r => r.name === name)) {
+    DB.reps.push({ name, role: trimv($('u-position').value) || trimv($('u-dept').value) || '' });
+    save(true);
+    refreshDatalists();
+  }
+
+  $('u-btn').disabled = false;
+  uMsg('<b>' + esc(name) + '</b> 계정을 만들었습니다.<br>이메일 <b>' + esc(email)
+    + '</b> / 임시 비밀번호 <b>' + esc(pw) + '</b><br>본인에게 전달하고 첫 로그인 후 변경하도록 안내해주세요.', true);
+  $('u-email').value = ''; $('u-name').value = '';
+  renderUsers();
+  if (CUR_PAGE === 'settings') renderSettings();
 }
 
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
