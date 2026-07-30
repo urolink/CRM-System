@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730u';
+const APP_VERSION = '20260730v';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4519,15 +4519,12 @@ async function renderUsers() {
   const card = $('usermgmt-card');
   if (!card) return;
   const addBtn = $('add-user-btn');
-  const dataCard = $('datamgmt-card');
   if (!isRemote() || !isAdmin()) {
     card.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
-    if (dataCard) dataCard.style.display = 'none';
     return;
   }
   if (addBtn) addBtn.style.display = 'inline-block';
-  if (dataCard) dataCard.style.display = 'block';
   card.style.display = 'block';
   const { data, error } = await SB.from('ul_profiles').select('*').order('dept').order('created_at');
   if (error) {
