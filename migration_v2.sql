@@ -97,8 +97,18 @@ end $$;
 
 
 -- ───────────────────────────────────────────────────────────────
--- 4. 기존 계정 보정 — 이미 있는 계정을 활성 처리하고 허용목록에 등록
+-- 4. 기존 계정 보정
+--    (a) 프로필이 없는 로그인 계정을 끌어온다
+--        트리거(ul_auth_user_created)가 만들어지기 전에 Supabase 대시보드에서
+--        직접 추가한 계정은 ul_profiles 행이 없어 앱 목록에 보이지 않는다.
+--    (b) 활성 상태 보정 + 허용목록 등록
 -- ───────────────────────────────────────────────────────────────
+insert into ul_profiles (id, email, display_name, role, active)
+select u.id, u.email, split_part(coalesce(u.email, ''), '@', 1), 'user', true
+from auth.users u
+left join ul_profiles p on p.id = u.id
+where p.id is null;
+
 update ul_profiles set active = true where active is null;
 insert into ul_invites(email, used_at)
   select email, now() from ul_profiles where email is not null

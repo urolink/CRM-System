@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730i';
+const APP_VERSION = '20260730j';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2610,7 +2610,7 @@ function renderAccountBox() {
   if (!isRemote()) {
     card.style.display = 'none';
     box.innerHTML = '<div class="mode-chip local" title="config.js 에 anon key 를 넣으면 서버 공유 모드가 됩니다">'
-      + '<i class="bi bi-hdd"></i>이 보라우자에만 저장</div>';
+      + '<i class="bi bi-hdd"></i>이 브라우저에만 저장</div>';
     return;
   }
   const nm = (ME && (ME.display_name || String(ME.email || '').split('@')[0])) || '-';
@@ -2623,7 +2623,7 @@ function renderAccountBox() {
     ? '<span style="color:#0e7490;font-weight:700">관리자</span> · 삭제 가능'
     : '일반 · 삭제 불가';
 }
-/* 보안: 버밀번호 변경 */
+/* 보안: 비밀번호 변경 */
 function openPwModal() {
   $('pw-new').value = ''; $('pw-new2').value = '';
   $('pw-msg').style.display = 'none';
@@ -2640,7 +2640,7 @@ function pwMsg(m, ok) {
 async function doChangePw() {
   const a = $('pw-new').value, b = $('pw-new2').value;
   if (a.length < 8) return pwMsg('8자 이상으로 정해주세요.');
-  if (a !== b) return pwMsg('다시 입력한 버밀번호가 달릅니다.');
+  if (a !== b) return pwMsg('다시 입력한 비밀번호가 다릅니다.');
   $('pw-btn').disabled = true;
   const { error } = await SB.auth.updateUser({ password: a });
   $('pw-btn').disabled = false;
