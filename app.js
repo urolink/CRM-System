@@ -4519,12 +4519,15 @@ async function renderUsers() {
   const card = $('usermgmt-card');
   if (!card) return;
   const addBtn = $('add-user-btn');
+  const dataCard = $('datamgmt-card');
   if (!isRemote() || !isAdmin()) {
     card.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
+    if (dataCard) dataCard.style.display = 'none';
     return;
   }
   if (addBtn) addBtn.style.display = 'inline-block';
+  if (dataCard) dataCard.style.display = 'block';
   card.style.display = 'block';
   const { data, error } = await SB.from('ul_profiles').select('*').order('dept').order('created_at');
   if (error) {
