@@ -272,6 +272,17 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 #login-card .lg-field{margin-bottom:14px}
 #login-card .lg-field label{font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;display:block}
 #login-card .lg-foot{font-size:11.5px;color:#94a3b8;margin-top:16px;text-align:center;line-height:1.6}
+/* 비밀번호 5회 실패 안내 팝업 */
+#lg-lock{position:absolute;inset:0;z-index:5100;background:rgba(15,23,42,.72);display:none;
+  align-items:center;justify-content:center;padding:20px}
+#lg-lock.on{display:flex}
+#lg-lock .ll-card{width:100%;max-width:340px;background:#fff;border-radius:18px;padding:28px 26px;text-align:center;
+  box-shadow:0 24px 60px rgba(0,0,0,.45)}
+#lg-lock .ll-ic{width:52px;height:52px;border-radius:50%;background:#fef2f2;color:#dc2626;font-size:23px;
+  display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+#lg-lock .ll-t{font-size:15.5px;font-weight:800;color:#182230;letter-spacing:-.01em}
+#lg-lock .ll-s{font-size:12.5px;color:#64748b;margin:9px 0 20px;line-height:1.65}
+#lg-lock .ll-s b{color:#0e7490}
 #lg-msg{font-size:12px;margin-bottom:12px;display:none;padding:8px 11px;border-radius:8px}
 #lg-msg.err{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
 #lg-msg.ok{display:block;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}

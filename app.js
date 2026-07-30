@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730e';
+const APP_VERSION = '20260730f';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2614,14 +2614,19 @@ function lgMsg(msg, kind) {
 function showLogin() {
   document.body.classList.add('locked');
   $('login-screen').classList.add('on');
-  const host = String(CFG.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
-  $('lg-local').textContent = host ? '서버 ' + host : '';
   setTimeout(() => $('lg-email').focus(), 100);
 }
 function hideLogin() {
   document.body.classList.remove('locked');
   $('login-screen').classList.remove('on');
 }
+const LG_FAIL_KEY = 'ul_login_fail';
+const LG_FAIL_MAX = 5;
+function lgFailCount() { try { return num(sessionStorage.getItem(LG_FAIL_KEY)); } catch (e) { return 0; } }
+function lgFailSet(v) { try { sessionStorage.setItem(LG_FAIL_KEY, String(v)); } catch (e) {} }
+function openLgLock() { $('lg-lock').classList.add('on'); }
+function closeLgLock() { $('lg-lock').classList.remove('on'); }
+
 async function doLogin() {
   const email = $('lg-email').value.trim(), pw = $('lg-pw').value;
   if (!email || !pw) return lgMsg('이메일과 비밀번호를 입력해주세요.');
@@ -2631,11 +2636,19 @@ async function doLogin() {
   $('lg-btn').disabled = false;
   if (error) {
     const m = String(error.message || '');
+    const wrong = /invalid login|invalid credentials/i.test(m);
+    if (wrong) {
+      const c = lgFailCount() + 1;
+      lgFailSet(c);
+      if (c >= LG_FAIL_MAX) { lgMsg(''); openLgLock(); return; }
+      return lgMsg('이메일 또는 비밀번호가 올바르지 않습니다. (' + c + '/' + LG_FAIL_MAX + ')');
+    }
     return lgMsg(/invalid login|invalid credentials/i.test(m) ? '이메일 또는 비밀번호가 올바르지 않습니다.'
       : /not confirmed/i.test(m) ? '이메일 확인이 완료되지 않은 계정입니다. 관리자에게 문의하세요.'
       : m);
   }
   lgMsg('');
+  lgFailSet(0);
   await afterLogin(data.session);
 }
 async function doLogout() {
