@@ -152,6 +152,83 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
   .cdud .ovc:nth-child(odd){border-left:0;padding-left:0}
 }
 
+/* ── 변경 이력 (감사 로그) ── */
+.au-empty{font-size:12px;color:#94a3b8;padding:8px 0}
+.au-list{display:flex;flex-direction:column;gap:7px}
+.au-i{border:1px solid var(--border);border-radius:8px;padding:7px 9px;background:#fafbfc}
+.au-h{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.au-h em{font-style:normal;font-size:11px;font-weight:800;color:#182230;font-variant-numeric:tabular-nums}
+.au-h span{font-size:10.5px;color:#64748b}
+.au-c{display:flex;align-items:center;gap:5px;font-size:11.5px;line-height:1.9;flex-wrap:wrap}
+.au-c b{font-weight:700;color:#64748b;min-width:56px}
+.au-c s{color:#94a3b8;text-decoration:line-through}
+.au-c i{color:#cbd5e1;font-size:11px}
+.au-c u{text-decoration:none;font-weight:700;color:#182230}
+.au-c u.up{color:#15803d}
+.au-c u.dn{color:#dc2626}
+
+/* ── 목표 대비 실적 ── */
+.tg-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid #f3f4f6}
+.tg-row:last-child{border-bottom:0}
+.tg-row.clk{cursor:pointer;border-radius:6px;transition:background .12s}
+.tg-row.clk:hover{background:#f8fafc}
+.tg-l{width:78px;flex-shrink:0;font-size:12.5px;font-weight:700;color:#334155;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-bar{flex:1;min-width:40px;height:14px;background:#f1f5f9;border-radius:4px;position:relative;overflow:hidden}
+.tg-fill{height:100%;border-radius:4px;min-width:2px;transition:width .3s}
+.tg-fill.up{background:#16a34a}
+.tg-fill.ok{background:#0e7490}
+.tg-fill.dn{background:#dc2626}
+.tg-fill.na{background:#cbd5e1}
+/* 기간 진행률 표시선 — 달성률이 이 선보다 왼쪽이면 뒤처진 것 */
+.tg-pace{position:absolute;top:-2px;bottom:-2px;width:2px;background:#182230;opacity:.5}
+.tg-r{width:74px;flex-shrink:0;text-align:right;font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.tg-r.up{color:#15803d}.tg-r.ok{color:#0e7490}.tg-r.dn{color:#dc2626}.tg-r.na{color:#94a3b8;font-weight:600;font-size:11px}
+.tg-v{width:112px;flex-shrink:0;text-align:right;font-size:11.5px;color:#64748b;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.tg-warn{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:11px 14px;
+  font-size:12.5px;color:#92400e;margin-bottom:14px}
+/* 목표 입력 표 */
+.tg-t{font-size:12px}
+.tg-t th{font-size:11px;font-weight:700;color:var(--text-2);white-space:nowrap}
+.tg-t td{vertical-align:middle;padding:3px 2px}
+.tg-in{width:100%;min-width:48px;border:1px solid var(--border);border-radius:5px;padding:3px 5px;
+  font-size:11.5px;text-align:right;font-variant-numeric:tabular-nums;background:#fff}
+.tg-in:focus{outline:0;border-color:var(--blue);box-shadow:0 0 0 2px rgba(14,116,144,.12)}
+.tg-tot{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ── 소모품 재구매 예측 ── */
+.rb-b{font-size:10.5px;font-weight:800;border-radius:5px;padding:2px 6px;white-space:nowrap}
+.rb-b.over{background:#fef2f2;color:#dc2626}
+.rb-b.soon{background:#fff7ed;color:#ea580c}
+.rb-b.ok{background:#f1f5f9;color:#64748b}
+.rb-est{font-size:9px;font-weight:700;color:#94a3b8;background:#f1f5f9;border-radius:3px;padding:1px 4px;margin-left:4px}
+.rb-noeq{font-size:9.5px;font-weight:700;color:#7c3aed;background:#ede9fe;border-radius:4px;padding:1px 5px}
+
+/* ── 엑셀 가져오기 ── */
+.im-guide{background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px}
+.im-guide>b{font-size:11.5px;font-weight:800;color:#475569}
+.im-cols{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}
+.im-col{font-size:11px;background:#fff;border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:#334155}
+.im-col.req{border-color:#0e7490;color:#0e7490;font-weight:700}
+.im-col u{text-decoration:none;color:#94a3b8;margin-left:4px;font-size:10px}
+.im-note{font-size:11px;color:#64748b;line-height:1.6}
+.im-err{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#b91c1c;line-height:1.7}
+.im-err span{font-size:11px;color:#dc2626;word-break:break-all}
+.im-stat{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12.5px;font-weight:700}
+.im-stat .s-new{color:#0e7490}.im-stat .s-dup{color:#ea580c}.im-stat .s-err{color:#dc2626}
+.im-stat u{text-decoration:none;margin-left:auto;color:#94a3b8;font-weight:600;font-size:11.5px}
+.im-t{font-size:11.5px}
+.im-t th{font-size:10.5px;font-weight:700;color:var(--text-2);white-space:nowrap;position:sticky;top:0;background:#fff;z-index:1}
+.im-t td{vertical-align:middle;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.im-t tr.err{background:#fef7f7}
+.im-t tr.dup{background:#fffbf5}
+.im-msg{font-size:10.5px;color:#64748b;max-width:260px!important;white-space:normal!important}
+.im-b{font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.im-b.new{background:#ecfeff;color:#0e7490}
+.im-b.dup{background:#fff7ed;color:#ea580c}
+.im-b.err{background:#fef2f2;color:#dc2626}
+
 /* ══ 문서형 KPI 밴드 (원텍 한국영업 .cdud 이식) ══ */
 .cdud{--ink:#182230;--mut:#64748b;--line:#e4e8ef;--navy:#16324f;--acc:#0e7490;--rd:#dc2626;--grn:#15803d;
   background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px 34px 32px;letter-spacing:-.01em}

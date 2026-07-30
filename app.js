@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730s';
+const APP_VERSION = '20260730t';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -91,8 +91,14 @@ let DB = null;
 
 const CFG = window.UROLINK_CONFIG || {};
 const TABLES = { customers: 'ul_customers', deals: 'ul_deals', logs: 'ul_logs', quotes: 'ul_quotes',
-                 equipments: 'ul_equipments', products: 'ul_products', schedules: 'ul_schedules', reps: 'ul_reps' };
+                 equipments: 'ul_equipments', products: 'ul_products', schedules: 'ul_schedules', reps: 'ul_reps',
+                 targets: 'ul_targets', audits: 'ul_audits' };
 const KEY_FIELD = { products: 'code', reps: 'name' };   // 그 외 컬렉션은 'id'
+/* 나중에 추가된 테이블 — migration_v3.sql 을 아직 실행하지 않은 환경도 있다.
+   이 테이블이 없다고 해서 앱 전체 로딩이 막히면 안 되므로 선택적으로 취급한다. */
+const OPTIONAL_TABLES = ['targets', 'audits'];
+const MISSING_TABLES = new Set();
+const isMissingRelation = m => /relation .* does not exist|could not find the table|schema cache/i.test(String(m || ''));
 const rowKey = (coll, row) => String(row[KEY_FIELD[coll] || 'id'] || '');
 
 let SB = null;              // supabase 클라이언트
@@ -113,7 +119,7 @@ function ensureAdmin() {
 }
 function blankDB() {
   return { customers: [], deals: [], logs: [], quotes: [], equipments: [], products: [], schedules: [],
-           reps: [], meta: { ver: 1, updatedAt: null, sample: false } };
+           reps: [], targets: [], audits: [], meta: { ver: 1, updatedAt: null, sample: false } };
 }
 function fixShape() {
   const b = blankDB();
@@ -128,7 +134,10 @@ function fixShape() {
     if (!d.cat) { const p = prodByCode(d.productCode); if (p) d.cat = p.cat; }
   });
 }
-const isEmptyDB = () => Object.keys(TABLES).every(k => !(DB[k] || []).length);
+/* 선택적 테이블(목표·이력)만 있는 상태를 '데이터 있음' 으로 오판하지 않게 제외한다 */
+const isEmptyDB = () => Object.keys(TABLES)
+  .filter(k => OPTIONAL_TABLES.indexOf(k) < 0)
+  .every(k => !(DB[k] || []).length);
 /* 샘플 데이터 존재 여부 — meta 플래그는 브라우저별이라, 시드된 실제 행으로 판별(서버 공유 시에도 정확) */
 const hasSampleData = () => (DB.customers || []).some(c => c.id === 'c1' && c.name === '한강비뇨의학과의원');
 
@@ -173,6 +182,9 @@ async function pushDiff(silent) {
   if (!SB) return;
   const ops = [], summary = [];
   Object.keys(TABLES).forEach(coll => {
+    /* 서버에 아직 없는 테이블은 건너뛴다. 값은 localStorage 캐시에 남아 있으므로
+       SQL 을 실행하면 그때부터 자동으로 올라간다. */
+    if (MISSING_TABLES.has(coll)) return;
     const cur = DB[coll] || [], prev = SHADOW[coll] || [];
     const curMap = new Map(), prevMap = new Map();
     cur.forEach(r => { const k = rowKey(coll, r); if (k) curMap.set(k, r); });
@@ -197,6 +209,17 @@ async function pushDiff(silent) {
   const bad = res.find(r => r && r.error);
   if (bad) {
     const m = String(bad.error.message || '');
+    /* 목표·변경이력 테이블이 없어서 실패한 것이면, 해당 테이블만 빼고 계속 쓴다 */
+    if (isMissingRelation(m)) {
+      OPTIONAL_TABLES.forEach(t => {
+        if (String(TABLES[t]) && m.indexOf(TABLES[t]) >= 0) MISSING_TABLES.add(t);
+      });
+      if (MISSING_TABLES.size) {
+        console.warn('[pushDiff] 미생성 테이블 — 로컬에만 보관:', [...MISSING_TABLES].join(', '));
+        toast('목표·변경이력은 이 브라우저에만 저장됩니다 (migration_v3.sql 미실행)');
+        return;
+      }
+    }
     // SHADOW 를 갱신하지 않으므로 다음 저장 때 자동으로 재시도됩니다.
     toast(/row-level security|permission|policy/i.test(m)
       ? '권한이 없어 서버에 저장되지 않았습니다 (삭제는 관리자만)'
@@ -218,11 +241,21 @@ async function pullRemote(withToast) {
   catch (e) { syncing(false); toast('네트워크 오류 — 서버에서 불러오지 못했습니다'); console.error(e); return false; }
   syncing(false);
 
+  /* 선택적 테이블이 아직 없는 경우는 오류로 보지 않고 빈 값으로 넘긴다 */
+  names.forEach((nm, i) => {
+    const r = res[i];
+    if (r && r.error && OPTIONAL_TABLES.indexOf(nm) >= 0 && isMissingRelation(r.error.message)) {
+      MISSING_TABLES.add(nm);
+      res[i] = { data: [], error: null };
+    }
+  });
+  if (MISSING_TABLES.size) console.warn('[pullRemote] 미생성 테이블(로컬로만 보관):', [...MISSING_TABLES].join(', '));
+
   const bad = res.find(r => r && r.error);
   if (bad) {
     console.error('[pullRemote]', bad.error);
     const m = String(bad.error.message || '');
-    if (/relation .* does not exist|schema cache/i.test(m)) {
+    if (isMissingRelation(m)) {
       alert('서버에 테이블이 없습니다.\nmigration.sql 을 Supabase SQL Editor 에서 먼저 실행해주세요.');
     } else {
       toast('서버에서 불러오지 못했습니다 — 캐시된 데이터를 표시합니다');
@@ -578,6 +611,8 @@ const digitsOnly = v => String(v == null ? '' : v).replace(/[^0-9]/g, '');
 /* onclick 문자열 안에 쓰는 단일인용부호. HTML 속성은 큰따옴표로 감싸므로 그대로 유효하다.
    (백슬래시 이스케이프는 파이썬/셸을 거치며 깨지기 쉬워 상수로 둔다) */
 const Q = String.fromCharCode(39);
+/* 줄바꿈. 패치 스크립트를 거치며 백슬래시가 사라지는 사고가 반복돼 상수로 둔다 */
+const NL = String.fromCharCode(10);
 /* 변경 기록용 사용자 표시명 (로컬 모드면 빈 문자열) */
 const curUserName = () => (ME && (ME.display_name || ME.email)) || '';
 
@@ -646,7 +681,17 @@ function refreshSelects() {
   fillSelect($('c-region'), [...new Set(DB.customers.map(c => c.sido).filter(Boolean))].sort(), { blank: '전체 지역', keep: true });
   // 연도 select
   const years = [...new Set([new Date().getFullYear(), ...DB.deals.map(d => num(String(d.expectedDate).slice(0, 4))).filter(y => y > 2000)])].sort((a, b) => b - a);
-  const ay = $('ana-year'); if (ay && !ay.options.length) fillSelect(ay, years.map(y => ({ v: y, l: y + '년' })));
+  /* 연도 목록이 늘어나면 다시 채운다. 사용자가 고른 값은 그대로 유지. */
+  const ay = $('ana-year');
+  if (ay) {
+    const sig = years.join(',');
+    if (ay.dataset.ysig !== sig) {
+      const cur = ay.value;
+      fillSelect(ay, years.map(y => ({ v: y, l: y + '년' })));
+      ay.dataset.ysig = sig;
+      ay.value = (cur && years.includes(num(cur))) ? cur : new Date().getFullYear();
+    }
+  }
   // 파이프라인 칩
   const chips = $('pipe-chips');
   if (chips && !chips.children.length) {
@@ -797,6 +842,12 @@ function renderDashboard() {
     if ((c.grade === 'A' || c.grade === 'B') && (n == null || n > 60))
       alerts.push({ ic: 'bi-person-dash', c: '#7c3aed', t: c.name, s: last ? `${n}일간 접촉 없음 (${c.grade}등급)` : `접촉 이력 없음 (${c.grade}등급)`, go: `openCustDetail('${c.id}')` });
   });
+  /* 소모품 재구매 도래 — 담당자 기억에만 의존하면 그대로 넘어간다 */
+  rebuyDue().slice(0, 12).forEach(x => alerts.push({
+    ic: 'bi-arrow-repeat', c: x.dleft < 0 ? '#dc2626' : '#0e7490', t: custName(x.custId),
+    s: (x.name || x.code) + ' 재구매 ' + (x.dleft < 0 ? (-x.dleft) + '일 경과' : 'D-' + x.dleft)
+       + ' · 평균 ' + money(x.avgAmt) + '원',
+    go: `openCustDetail('${x.custId}')` }));
   /* 실주했지만 재도전 시점이 도래한 딜 — 놓치면 그대로 사라진다 */
   retryDueDeals().forEach(d => alerts.push({ ic: 'bi-arrow-repeat', c: '#0e7490', t: custName(d.custId),
     s: `재도전 시점 도래 (${fmtDate(d.retryDate)}) · ${esc(trimv(d.lostReason) || '실주')}`, go: `openDrawer('${d.id}')` }));
@@ -837,11 +888,20 @@ function badgeYoy(cur, prev) {
   const r = (cur / prev - 1) * 100;
   return '<span class="yoy ' + (r >= 0 ? 'up' : 'dn') + '">' + (r >= 0 ? '▲' : '▼') + Math.abs(r).toFixed(1) + '%</span>';
 }
+/* 연도 목록 — 딜만 보면 다른 표에만 있는 연도가 조회에서 사라진다.
+   현재 연도는 데이터가 없어도 항상 포함(연초에 선택 불가가 되는 것을 막는다). */
 function dealYears() {
-  const ys = [...new Set(DB.deals.map(d => num(String(d.expectedDate).slice(0, 4))).filter(y => y > 2000))];
-  const cy = new Date().getFullYear();
-  if (!ys.includes(cy)) ys.push(cy);
-  return ys.sort((x, y) => y - x);
+  const ys = new Set();
+  const pick = (arr, f) => (arr || []).forEach(r => {
+    const y = num(String(f(r) || '').slice(0, 4));
+    if (y > 2000) ys.add(y);
+  });
+  pick(DB.deals, d => d.expectedDate);
+  pick(DB.deals, d => d.closedAt);
+  pick(DB.quotes, q => q.date);
+  pick(DB.targets, t => t.ym);
+  ys.add(new Date().getFullYear());
+  return [...ys].sort((x, y) => y - x);
 }
 function initPeriodSel(pfx) {
   const ySel = $(pfx + '-year');
@@ -862,7 +922,14 @@ function initPeriodSel(pfx) {
 }
 function periodOf(pfx) {
   initPeriodSel(pfx);
-  const y = num($(pfx + '-year').value) || new Date().getFullYear();
+  const sel = $(pfx + '-year');
+  /* select 에 없는 연도를 넣으면 value 가 조용히 첫 옵션으로 떨어진다.
+     연말·연초에 엉뚱한 연도가 조회되는 경로라 명시적으로 잡는다. */
+  let y = num(sel.value);
+  if (!y || !dealYears().includes(y)) {
+    y = new Date().getFullYear();
+    if (sel.value !== String(y)) sel.value = y;
+  }
   let a = num($(pfx + '-from').value) || 1, b = num($(pfx + '-to').value) || 12;
   if (a > b) { const t = a; a = b; b = t; }
   return [y, a, b];
@@ -1192,8 +1259,10 @@ function saveSale(keepOpen) {
   const id = $('sl-id').value;
   if (id) {
     const ex = DB.deals.find(x => x.id === id);
+    const before = auditSnap(ex);
     Object.assign(ex, row);
     if (!ex.src) ex.src = 'pipeline';   // 출처 표기만 명시, direct 로 바꾸지 않음
+    auditDiff('deals', id, before, ex, custName(ex.custId));
   } else {
     DB.deals.push(Object.assign({ id: uid(), createdAt: today(), nextAction: '', nextActionDate: '', src: 'direct' }, row));
   }
@@ -1462,6 +1531,772 @@ function drillMixCat(cat) {
     DRL.wonRange(y, a, b, cat));
 }
 
+/* ══════════════════════════════════════════════════════════════
+   변경 이력 (감사 로그)
+   여러 사람이 같은 딜의 금액·단계를 고치는데 지금까지는 누가 언제 무엇을
+   얼마에서 얼마로 바꿨는지가 남지 않았다. 나중에 실적 다툼이 생기면
+   되짚을 근거가 없으므로 추적 대상 필드만 골라 전/후를 기록한다.
+   ══════════════════════════════════════════════════════════════ */
+
+/* 추적 대상 — 다 남기면 노이즈가 되므로 돈과 진행에 직접 영향 있는 것만 */
+const AUDIT_FIELDS = {
+  amount:      { l: '금액',     fmt: v => comma(v) + '원' },
+  stage:       { l: '단계',     fmt: v => String(v || '-') },
+  qty:         { l: '수량',     fmt: v => num(v) + '개' },
+  expectedDate:{ l: '예상 수주일', fmt: v => v ? fmtDate(v) : '-' },
+  rep:         { l: '담당자',   fmt: v => String(v || '-') },
+  product:     { l: '제품',     fmt: v => String(v || '-') },
+  lostReason:  { l: '실주 사유', fmt: v => String(v || '-') },
+  competitor:  { l: '경쟁사',   fmt: v => String(v || '-') }
+};
+const AUDIT_KEEP = 400;   // 무한히 쌓이면 동기화가 무거워진다
+
+/* before(변경 전 스냅샷) 와 after 를 비교해 달라진 항목만 기록 */
+function auditDiff(coll, id, before, after, label) {
+  if (!before) return;
+  const chg = [];
+  Object.keys(AUDIT_FIELDS).forEach(f => {
+    const a = before[f], b = after[f];
+    /* 숫자 필드는 문자/숫자 표기차로 오탐이 나므로 숫자로 비교 */
+    const same = (f === 'amount' || f === 'qty') ? num(a) === num(b) : trimv(a) === trimv(b);
+    if (!same) chg.push({ f: f, from: a == null ? '' : a, to: b == null ? '' : b });
+  });
+  if (!chg.length) return;
+  if (!DB.audits) DB.audits = [];
+  DB.audits.push({
+    id: uid(), coll: coll, refId: id, label: label || '',
+    at: nowStamp(), by: curUserName() || '(로컬)', chg: chg
+  });
+  if (DB.audits.length > AUDIT_KEEP) DB.audits = DB.audits.slice(-AUDIT_KEEP);
+}
+/* 변경 전 스냅샷 — 추적 필드만 복사하면 되므로 깊은 복사가 필요 없다 */
+function auditSnap(o) {
+  if (!o) return null;
+  const r = {};
+  Object.keys(AUDIT_FIELDS).forEach(f => { r[f] = o[f]; });
+  return r;
+}
+function nowStamp() {
+  const d = new Date();
+  return ymd(d) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+const auditsOf = (coll, id) => (DB.audits || [])
+  .filter(x => x.coll === coll && x.refId === id)
+  .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+
+/* 이력 렌더 — 딜 상세 패널과 드릴다운에서 같은 모양으로 쓴다 */
+function auditHtml(coll, id, emptyMsg) {
+  const list = auditsOf(coll, id);
+  if (!list.length) return '<div class="au-empty">' + esc(emptyMsg || '변경 이력이 없습니다') + '</div>';
+  return '<div class="au-list">' + list.map(a =>
+    '<div class="au-i"><div class="au-h"><em>' + esc(a.at) + '</em><span>' + esc(a.by) + '</span></div>'
+    + a.chg.map(c => {
+        const def = AUDIT_FIELDS[c.f] || { l: c.f, fmt: v => String(v) };
+        const up = (c.f === 'amount' || c.f === 'qty') && num(c.to) > num(c.from);
+        const dn = (c.f === 'amount' || c.f === 'qty') && num(c.to) < num(c.from);
+        return '<div class="au-c"><b>' + esc(def.l) + '</b>'
+          + '<s>' + esc(def.fmt(c.from)) + '</s>'
+          + '<i class="bi bi-arrow-right"></i>'
+          + '<u class="' + (up ? 'up' : dn ? 'dn' : '') + '">' + esc(def.fmt(c.to)) + '</u></div>';
+      }).join('')
+    + '</div>').join('') + '</div>';
+}
+
+/* 최근 금액 변경 전체 — 임원이 "누가 숫자를 만졌나" 를 한 번에 보는 용도 */
+function drillAudits() {
+  const list = (DB.audits || []).slice()
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .filter(a => a.chg.some(c => c.f === 'amount' || c.f === 'stage'));
+  const rows = list.slice(0, 200).map(a => {
+    const d = a.coll === 'deals' ? DB.deals.find(x => x.id === a.refId) : null;
+    const cells = a.chg.filter(c => c.f === 'amount' || c.f === 'stage').map(c => {
+      const def = AUDIT_FIELDS[c.f];
+      return def.l + ' ' + def.fmt(c.from) + ' → ' + def.fmt(c.to);
+    }).join(' / ');
+    return '<tr' + (d ? ' style="cursor:pointer" onclick="drillGo(function(){openDrawer(&#39;' + d.id + '&#39;)})"' : '') + '>'
+      + '<td>' + esc(a.at) + '</td>'
+      + '<td class="fw-bold">' + esc(a.by) + '</td>'
+      + '<td>' + esc(a.label || (d ? custName(d.custId) : '(삭제됨)')) + '</td>'
+      + '<td>' + esc(cells) + '</td></tr>';
+  });
+  openDrill('금액 · 단계 변경 이력', list.length + '건 (최근 200건 표시)',
+    drillTable(['시각', '변경자', '대상', '변경 내용'], rows, ''));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   목표 대비 실적
+   실적 숫자만 있으면 "잘한 건지" 판단이 안 된다. 목표와 월중 페이스를 붙인다.
+   targets 행: { id, ym:'2026-07', rep:'김성호'|'', amount }
+   rep 이 빈 문자열이면 전사 합계 목표.
+   ══════════════════════════════════════════════════════════════ */
+
+const targetOf = (ym, rep) => (DB.targets || [])
+  .filter(t => t.ym === ym && trimv(t.rep) === trimv(rep))
+  .reduce((s2, t) => s2 + num(t.amount), 0);
+
+/* 기간(a~b월) 목표 합계. 담당자별 목표가 하나도 없으면 전사 목표로 대체한다 */
+function targetSum(y, a, b, rep) {
+  let t = 0;
+  for (let m = a; m <= b; m++) t += targetOf(y + '-' + pad(m), rep || '');
+  return t;
+}
+function hasRepTargets(y) {
+  return (DB.targets || []).some(t => String(t.ym).slice(0, 4) == y && trimv(t.rep));
+}
+
+/* 월중 페이스 — 기간이 얼마나 지났는지. 오늘이 기간 밖이면 0% 또는 100% */
+function periodProgress(a, b) {
+  const t = today();
+  if (t < a) return 0;
+  if (t > b) return 1;
+  const total = dayDiff(a, b) + 1;
+  const done = dayDiff(a, t) + 1;
+  return total > 0 ? done / total : 1;
+}
+function dayDiff(a, b) {
+  return Math.round((parseD(b) - parseD(a)) / 86400000);
+}
+
+/* 달성률 바 한 줄 */
+function targetRow(label, act, tgt, prog, go) {
+  const rate = tgt ? Math.round(act / tgt * 100) : null;
+  /* 기간이 60% 지났는데 달성 40% 면 뒤처진 것 — 진행률과 비교해야 의미가 있다 */
+  const pace = tgt ? Math.round(prog * 100) : null;
+  const behind = rate != null && pace != null && rate < pace - 5;
+  const ahead = rate != null && pace != null && rate > pace + 5;
+  const cls = rate == null ? 'na' : behind ? 'dn' : ahead ? 'up' : 'ok';
+  return '<div class="tg-row' + (go ? ' clk' : '') + '"' + (go ? ' onclick="' + go + '"' : '') + '>'
+    + '<div class="tg-l">' + esc(label) + '</div>'
+    + '<div class="tg-bar"><div class="tg-fill ' + cls + '" style="width:'
+      + (rate == null ? 0 : Math.min(100, rate)) + '%"></div>'
+      + (pace == null ? '' : '<div class="tg-pace" style="left:' + Math.min(100, pace) + '%"></div>') + '</div>'
+    + '<div class="tg-r ' + cls + '">' + (rate == null ? '목표 미설정' : rate + '%') + '</div>'
+    + '<div class="tg-v">' + money(act) + (tgt ? ' / ' + money(tgt) : '') + '</div></div>';
+}
+
+/* a, b 는 renderAnalysis 가 넘기는 '2026-01-01' 형태의 날짜 문자열이다.
+   목표는 월 단위로 저장되므로 월 번호로 바꿔 쓴다.
+   (예전엔 날짜 문자열을 그대로 월로 써서 목표가 하나도 매칭되지 않았다) */
+function renderTargetTab(y, a, b, wonD) {
+  const mA = num(String(a).slice(5, 7)) || 1;
+  const mB = num(String(b).slice(5, 7)) || 12;
+  const prog = periodProgress(a, b);
+  const useRep = hasRepTargets(y);
+  const totTgt = useRep
+    ? [...new Set((DB.targets || []).filter(t => String(t.ym).slice(0, 4) == y).map(t => trimv(t.rep)).filter(Boolean))]
+        .reduce((s2, r) => s2 + targetSum(y, mA, mB, r), 0)
+    : targetSum(y, mA, mB, '');
+  const totAct = wonD.reduce((t, d) => t + num(d.amount), 0);
+  const rate = totTgt ? Math.round(totAct / totTgt * 100) : null;
+  const paceP = Math.round(prog * 100);
+  /* 지금 속도로 기간 끝까지 가면 얼마에 착지하는지 */
+  const landing = prog > 0 ? totAct / prog : 0;
+
+  const reps = [...new Set([...repNames(), ...wonD.map(d => d.rep).filter(Boolean)])]
+    .map(r => ({ r, act: wonD.filter(d => d.rep === r).reduce((t, d) => t + num(d.amount), 0), tgt: targetSum(y, mA, mB, r) }))
+    .filter(x => x.act || x.tgt)
+    .sort((x, z) => (z.tgt ? z.act / z.tgt : -1) - (x.tgt ? x.act / x.tgt : -1));
+
+  const months = [];
+  for (let m = mA; m <= mB; m++) {
+    const ym = y + '-' + pad(m);
+    const act = wonD.filter(d => String(d.expectedDate).slice(0, 7) === ym).reduce((t, d) => t + num(d.amount), 0);
+    const tgt = useRep
+      ? [...new Set((DB.targets || []).filter(t => t.ym === ym).map(t => trimv(t.rep)).filter(Boolean))]
+          .reduce((s2, r) => s2 + targetOf(ym, r), 0)
+      : targetOf(ym, '');
+    months.push({ m, ym, act, tgt });
+  }
+
+  const noTarget = !totTgt;
+  return '<div class="cdud mb-3" style="padding:20px 24px">'
+      + '<div class="ov-band">'
+        + '<div class="ovc hero"><span class="ovc-l">기간 실적</span><b class="ovc-v">' + money(totAct) + '</b>'
+          + '<span class="ovc-s">' + wonD.length + '건 · 계약완료 기준</span></div>'
+        + '<div class="ovc"><span class="ovc-l">기간 목표</span><b class="ovc-v">'
+          + (totTgt ? money(totTgt) : '-') + '</b><span class="ovc-s">'
+          + (useRep ? '담당자 목표 합계' : '전사 목표') + '</span></div>'
+        + '<div class="ovc"><span class="ovc-l">달성률</span><b class="ovc-v" style="color:'
+          + (rate == null ? '#94a3b8' : rate >= paceP ? '#15803d' : '#dc2626') + '">'
+          + (rate == null ? '-' : rate + '%') + '</b>'
+          + '<span class="ovc-s">기간 진행 ' + paceP + '%</span></div>'
+        + '<div class="ovc hero sep"><span class="ovc-l">현재 속도 착지 예상</span><b class="ovc-v">'
+          + (prog > 0 ? money(landing) : '-') + '</b><span class="ovc-s">'
+          + (totTgt && prog > 0 ? '목표 대비 ' + Math.round(landing / totTgt * 100) + '%' : '기간 진행률 기준 환산')
+          + '</span></div>'
+        + '<div class="ovc"><span class="ovc-l">남은 필요액</span><b class="ovc-v" style="color:'
+          + (totTgt && totAct < totTgt ? '#dc2626' : '#15803d') + '">'
+          + (totTgt ? money(Math.max(0, totTgt - totAct)) : '-') + '</b>'
+          + '<span class="ovc-s">' + (totTgt ? (totAct >= totTgt ? '목표 달성' : '목표까지') : '목표 미설정') + '</span></div>'
+        + '<div class="ovc"><span class="ovc-l">일 평균 필요액</span><b class="ovc-v">'
+          + (totTgt && today() <= b ? money(Math.max(0, totTgt - totAct) / Math.max(1, dayDiff(today(), b) + 1)) : '-')
+          + '</b><span class="ovc-s">'
+          + (today() <= b ? '남은 ' + Math.max(0, dayDiff(today(), b) + 1) + '일' : '기간 종료') + '</span></div>'
+      + '</div></div>'
+    + (noTarget ? '<div class="tg-warn"><i class="bi bi-exclamation-circle me-2"></i>'
+        + y + '년 목표가 설정되지 않았습니다. 오른쪽 위 <b>목표 설정</b>에서 입력하면 달성률과 착지 예상이 계산됩니다.</div>' : '')
+    + '<div class="row g-3">'
+      + '<div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">담당자별 달성률'
+        + '<u style="text-decoration:none;font-size:11.5px;font-weight:600;color:#94a3b8;margin-left:6px">'
+        + '세로선 = 기간 진행률 ' + paceP + '%</u></div>'
+        + (reps.length ? reps.map(x => targetRow(x.r, x.act, x.tgt, prog,
+            'drillDeals(' + Q + esc(x.r) + ' 수주' + Q + ',' + Q + '기간 내 계약완료' + Q
+            + ',DB.deals.filter(function(d){return d.stage===' + Q + '계약완료' + Q + '&&d.rep===' + Q + esc(x.r) + Q
+            + '&&inRange(d.expectedDate,DRL.anaA,DRL.anaB)}))')).join('')
+          : '<div class="ana-empty">담당자 실적·목표가 없습니다</div>')
+      + '</div></div>'
+      + '<div class="col-lg-6"><div class="card p-3 h-100"><div class="wt-st">월별 달성률</div>'
+        + months.map(x => targetRow(x.m + '월', x.act, x.tgt, x.ym < today().slice(0, 7) ? 1 : x.ym > today().slice(0, 7) ? 0 : prog,
+            'drillDeals(' + Q + x.ym + ' 수주' + Q + ',' + Q + '계약완료 기준' + Q
+            + ',DRL.wonMonth(' + y + ',' + x.m + '))')).join('')
+      + '</div></div>'
+    + '</div>';
+}
+
+/* ── 목표 입력 모달 ── */
+function openTargetModal() {
+  if (!ensureAdmin()) return;
+  const ySel = $('tg-year');
+  const years = [...new Set([new Date().getFullYear(), new Date().getFullYear() + 1, ...dealYears()])].sort((x, z) => z - x);
+  fillSelect(ySel, years.map(v => ({ v: v, l: v + '년' })));
+  ySel.value = num($('ana-year').value) || new Date().getFullYear();
+  renderTargetForm();
+  new bootstrap.Modal($('targetModal')).show();
+}
+function renderTargetForm() {
+  const y = num($('tg-year').value);
+  const scope = $('tg-scope').value;
+  const rows = scope === 'rep' ? repNames() : [''];
+  $('tg-sub').textContent = y + '년 · ' + (scope === 'rep' ? '담당자별 월 목표' : '전사 월 목표') + ' (만원)';
+  const head = '<tr><th style="min-width:92px">' + (scope === 'rep' ? '담당자' : '구분') + '</th>'
+    + Array.from({ length: 12 }, (_, i) => '<th class="text-center">' + (i + 1) + '</th>').join('')
+    + '<th class="text-end">연간</th></tr>';
+  const body = rows.map((r, ri) => {
+    const cells = Array.from({ length: 12 }, (_, i) => {
+      const v = targetOf(y + '-' + pad(i + 1), r);
+      return '<td><input type="text" class="tg-in" inputmode="numeric" data-rep="' + esc(r) + '" data-m="' + (i + 1) + '"'
+        + ' value="' + (v ? Math.round(v / 10000) : '') + '" oninput="tgSum()"></td>';
+    }).join('');
+    return '<tr><td class="fw-bold">' + esc(r || '전사') + '</td>' + cells
+      + '<td class="text-end fw-bold tg-tot" id="tgtot' + ri + '">0</td></tr>';
+  }).join('');
+  $('tg-form').innerHTML = '<div style="overflow-x:auto"><table class="table table-sm tg-t mb-0">'
+    + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+  tgSum();
+}
+function tgSum() {
+  const trs = $('tg-form').querySelectorAll('tbody tr');
+  trs.forEach((tr, ri) => {
+    let t = 0;
+    tr.querySelectorAll('.tg-in').forEach(i => { t += num(i.value); });
+    const cell = $('tgtot' + ri);
+    if (cell) cell.textContent = comma(t);
+  });
+}
+/* 연간 총액을 12개월로 균등 배분 — 매달 같은 숫자를 12번 타이핑하지 않게 */
+function spreadTarget() {
+  const v = prompt('연간 목표액을 만원 단위로 입력하면 12개월로 균등 배분합니다.' + NL
+    + '(담당자별 단위라면 담당자 1명당 금액입니다)');
+  if (v == null) return;
+  const yearAmt = num(v);
+  if (!yearAmt) return;
+  const per = Math.round(yearAmt / 12);
+  $('tg-form').querySelectorAll('.tg-in').forEach(i => { i.value = per; });
+  tgSum();
+  toast('월 ' + comma(per) + '만원으로 배분했습니다');
+}
+function saveTargets() {
+  if (!ensureAdmin()) return;
+  const y = num($('tg-year').value);
+  const scope = $('tg-scope').value;
+  const inputs = [...$('tg-form').querySelectorAll('.tg-in')];
+  /* 이 연도 + 이 단위(담당자별/전사)에 해당하는 기존 목표만 지우고 다시 넣는다.
+     다른 단위의 목표를 같이 날리면 안 된다. */
+  const isTotal = scope === 'total';
+  DB.targets = (DB.targets || []).filter(t =>
+    !(String(t.ym).slice(0, 4) == y && (isTotal ? !trimv(t.rep) : !!trimv(t.rep))));
+  let cnt = 0;
+  inputs.forEach(i => {
+    const amt = num(i.value) * 10000;      // 화면은 만원 단위
+    if (!amt) return;
+    DB.targets.push({ id: uid(), ym: y + '-' + pad(num(i.dataset.m)), rep: i.dataset.rep || '', amount: amt });
+    cnt++;
+  });
+  save();
+  bootstrap.Modal.getInstance($('targetModal')).hide();
+  if (CUR_PAGE === 'analysis') renderAnalysis();
+  toast(y + '년 목표 ' + cnt + '개월분 저장');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   활동량 (선행지표)
+   지금 분석은 전부 결과(매출)다. 매출이 나오기 전에 관리하려면
+   방문·데모·신규접촉 같은 활동량을 봐야 한다.
+   ══════════════════════════════════════════════════════════════ */
+function renderActivityTab(y, a, b, wonD) {
+  const sch = DB.schedules.filter(x => inRange(x.date, a, b));
+  const logs = DB.logs.filter(x => inRange(x.date, a, b));
+  const doneSch = sch.filter(x => x.done);
+  const reps = [...new Set([...repNames(), ...sch.map(x => x.rep).filter(Boolean), ...logs.map(x => x.rep).filter(Boolean)])];
+
+  const stats = reps.map(r => {
+    const ms = sch.filter(x => x.rep === r);
+    const md = ms.filter(x => x.done);
+    const ml = logs.filter(x => x.rep === r);
+    const visit = md.filter(x => x.type === '방문').length;
+    const demo = md.filter(x => x.type === '데모/시연').length;
+    const tel = md.filter(x => x.type === '전화').length;
+    /* 이 담당자가 기간 중 처음 접촉한 고객사 = 이전 이력이 전혀 없는 곳 */
+    const newCust = [...new Set(ml.map(x => x.custId).filter(Boolean))]
+      .filter(cid => !DB.logs.some(l => l.custId === cid && l.date < a)).length;
+    const won = wonD.filter(d => d.rep === r);
+    /* 데모를 몇 건 하면 1건 계약되는가 */
+    const demoConv = demo ? Math.round(won.length / demo * 100) : null;
+    return { r, plan: ms.length, done: md.length, visit, demo, tel, logs: ml.length, newCust,
+      wonCnt: won.length, demoConv,
+      doneRate: ms.length ? Math.round(md.length / ms.length * 100) : null };
+  }).filter(x => x.plan || x.logs).sort((x, z) => z.done - x.done);
+
+  const totDone = doneSch.length, totPlan = sch.length;
+  const demoAll = doneSch.filter(x => x.type === '데모/시연').length;
+  const newAll = [...new Set(logs.map(x => x.custId).filter(Boolean))]
+    .filter(cid => !DB.logs.some(l => l.custId === cid && l.date < a)).length;
+  const missed = sch.filter(x => !x.done && x.date < today()).length;
+
+  const goSch = function (type, label) {
+    return 'drillSch(' + Q + label + Q + ',' + Q + '기간 내 완료 처리된 일정' + Q
+      + ',DB.schedules.filter(function(x){return x.done&&inRange(x.date,DRL.anaA,DRL.anaB)'
+      + (type ? '&&x.type===' + Q + type + Q : '') + '}))';
+  };
+
+  return '<div class="cdud mb-3" style="padding:20px 24px">'
+      + '<div class="ov-band">'
+        + '<div class="ovc hero" onclick="' + goSch('', '완료 활동 전체') + '">'
+          + '<span class="ovc-l">완료 활동</span><b class="ovc-v">' + totDone + '건</b>'
+          + '<span class="ovc-s">계획 ' + totPlan + '건 중 '
+          + (totPlan ? Math.round(totDone / totPlan * 100) : 0) + '%</span></div>'
+        + '<div class="ovc" onclick="' + goSch('방문', '방문 활동') + '"><span class="ovc-l">방문</span>'
+          + '<b class="ovc-v">' + doneSch.filter(x => x.type === '방문').length + '건</b>'
+          + '<span class="ovc-s">현장 접촉</span></div>'
+        + '<div class="ovc" onclick="' + goSch('데모/시연', '데모 · 시연') + '"><span class="ovc-l">데모 · 시연</span>'
+          + '<b class="ovc-v">' + demoAll + '건</b><span class="ovc-s">'
+          + (demoAll ? '계약 ' + wonD.length + '건 / 전환 ' + Math.round(wonD.length / demoAll * 100) + '%' : '수주 직전 지표') + '</span></div>'
+        + '<div class="ovc hero sep"><span class="ovc-l">상담일지</span><b class="ovc-v">' + logs.length + '건</b>'
+          + '<span class="ovc-s">기록으로 남은 접촉</span></div>'
+        + '<div class="ovc"><span class="ovc-l">신규 접촉 고객사</span><b class="ovc-v">' + newAll + '곳</b>'
+          + '<span class="ovc-s">기간 전 이력 없음</span></div>'
+        + '<div class="ovc"><span class="ovc-l">결과 미입력</span>'
+          + '<b class="ovc-v" style="color:' + (missed ? '#dc2626' : '#15803d') + '">' + missed + '건</b>'
+          + '<span class="ovc-s">지난 일정 중 미완료</span></div>'
+      + '</div></div>'
+    + '<div class="ana-note mb-2">활동량은 <b>결과가 나오기 전</b>에 관리할 수 있는 유일한 지표입니다. '
+      + '완료율이 낮거나 결과 미입력이 쌓이면 실적이 나오기 전에 먼저 드러납니다.</div>'
+    + tbl(['담당자', '계획', '완료', '완료율', '방문', '전화', '데모', '상담일지', '신규 접촉', '수주', '데모→수주'],
+        stats.map(x => '<td class="fw-bold">' + esc(x.r) + '</td>'
+          + '<td class="text-center">' + x.plan + '</td>'
+          + '<td class="text-center fw-bold">' + x.done + '</td>'
+          + '<td class="text-center' + (x.doneRate != null && x.doneRate < 60 ? ' text-danger fw-bold' : '') + '">'
+            + (x.doneRate == null ? '-' : x.doneRate + '%') + '</td>'
+          + '<td class="text-center">' + x.visit + '</td>'
+          + '<td class="text-center">' + x.tel + '</td>'
+          + '<td class="text-center">' + x.demo + '</td>'
+          + '<td class="text-center">' + x.logs + '</td>'
+          + '<td class="text-center">' + x.newCust + '</td>'
+          + '<td class="text-center">' + x.wonCnt + '</td>'
+          + '<td class="text-center' + (x.demoConv != null && x.demoConv >= 50 ? ' text-success fw-bold' : '') + '">'
+            + (x.demoConv == null ? '-' : x.demoConv + '%') + '</td>'),
+        '기간 내 활동 기록이 없습니다');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   소모품 재구매 도래 예측
+   장비 설치 정보와 소모품 매출이 각각 있는데 연결이 없었다.
+   파이버·카트리지는 시술량에 비례해 반복 구매되므로, 고객사별
+   마지막 구매일 + 평균 재구매 주기로 도래 시점을 추정한다.
+   ══════════════════════════════════════════════════════════════ */
+
+const REBUY_DEFAULT_DAYS = 90;    // 이력이 1건뿐이라 주기를 못 구할 때 쓰는 기본값
+const REBUY_SOON_DAYS = 21;       // 도래 임박으로 볼 여유일
+
+/* 고객사 x 제품 단위로 구매 이력을 모아 다음 구매일을 추정 */
+function rebuyForecast() {
+  const cons = WON_DEALS()
+    .filter(d => dealCat(d) === '소모품' && d.custId && (d.expectedDate || d.closedAt))
+    .map(d => ({
+      custId: d.custId,
+      code: d.productCode || d.product || '',
+      name: d.product || '',
+      date: d.closedAt || d.expectedDate,
+      amount: num(d.amount),
+      qty: num(d.qty) || 1
+    }))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  const g = {};
+  cons.forEach(x => {
+    const k = x.custId + '||' + x.code;
+    if (!g[k]) g[k] = { custId: x.custId, code: x.code, name: x.name, buys: [] };
+    g[k].buys.push(x);
+    g[k].name = x.name || g[k].name;
+  });
+
+  const t = today();
+  return Object.values(g).map(row => {
+    const buys = row.buys;
+    const last = buys[buys.length - 1];
+    /* 구매 간격 평균 — 2건 이상일 때만 실제 주기를 알 수 있다 */
+    const gaps = [];
+    for (let i = 1; i < buys.length; i++) {
+      const gp = dayDiff(buys[i - 1].date, buys[i].date);
+      if (gp > 0) gaps.push(gp);
+    }
+    const cycle = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : REBUY_DEFAULT_DAYS;
+    const estimated = !gaps.length;      // 주기를 추정값으로 썼는지
+    const due = ymd(new Date(parseD(last.date).getTime() + cycle * 86400000));
+    const dleft = dayDiff(t, due);       // 음수면 이미 지났다
+    const avgAmt = Math.round(buys.reduce((a, b) => a + b.amount, 0) / buys.length);
+    /* 이 고객사가 장비를 갖고 있는지 — 장비 없이 소모품만 사는 곳과 구분 */
+    const hasEquip = DB.equipments.some(e => e.custId === row.custId);
+    return { custId: row.custId, code: row.code, name: row.name, cnt: buys.length,
+      lastDate: last.date, cycle: cycle, estimated: estimated, due: due, dleft: dleft,
+      avgAmt: avgAmt, totAmt: buys.reduce((a, b) => a + b.amount, 0), hasEquip: hasEquip };
+  }).sort((a, b) => a.dleft - b.dleft);
+}
+/* 도래했거나 임박한 것만 */
+const rebuyDue = () => rebuyForecast().filter(x => x.dleft <= REBUY_SOON_DAYS);
+
+function rebuyBadge(x) {
+  if (x.dleft < 0) return '<span class="rb-b over">' + (-x.dleft) + '일 경과</span>';
+  if (x.dleft === 0) return '<span class="rb-b over">오늘</span>';
+  if (x.dleft <= REBUY_SOON_DAYS) return '<span class="rb-b soon">D-' + x.dleft + '</span>';
+  return '<span class="rb-b ok">D-' + x.dleft + '</span>';
+}
+
+function drillRebuy(onlyDue) {
+  const list = onlyDue ? rebuyDue() : rebuyForecast();
+  const rows = list.map(x =>
+    '<tr style="cursor:pointer" onclick="drillGo(function(){openCustDetail(&#39;' + x.custId + '&#39;)})">'
+    + '<td>' + rebuyBadge(x) + '</td>'
+    + '<td class="fw-bold">' + esc(custName(x.custId))
+      + (x.hasEquip ? '' : ' <span class="rb-noeq">장비 없음</span>') + '</td>'
+    + '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name || x.code) + '</td>'
+    + '<td class="text-center">' + x.cnt + '회</td>'
+    + '<td>' + fmtDate(x.lastDate) + '</td>'
+    + '<td class="text-center">' + x.cycle + '일'
+      + (x.estimated ? '<span class="rb-est">추정</span>' : '') + '</td>'
+    + '<td class="fw-bold">' + fmtDate(x.due) + '</td>'
+    + '<td class="text-end">' + comma(x.avgAmt) + '</td></tr>');
+  const foot = '<td class="fw-bold">합계</td><td colspan="6">' + list.length + '건</td>'
+    + '<td class="text-end fw-bold">' + comma(list.reduce((t, x) => t + x.avgAmt, 0)) + '</td>';
+  openDrill(onlyDue ? '재구매 도래 · 임박' : '소모품 재구매 예측 전체',
+    (onlyDue ? '이미 지났거나 ' + REBUY_SOON_DAYS + '일 내 도래' : '고객사 x 제품별 다음 구매 시점 추정')
+      + ' · 주기가 1회 구매뿐이면 기본 ' + REBUY_DEFAULT_DAYS + '일로 추정합니다',
+    drillTable(['상태', '고객사', '제품', '구매', '마지막 구매', '평균 주기', '다음 예상', '평균 금액'],
+      rows, list.length ? foot : ''));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   엑셀 가져오기
+   여태 내보내기만 있어서 기존 고객사·장비 대장을 옮기려면 전부 수타였다.
+   헤더 이름으로 열을 찾으므로 열 순서가 달라도 되고, 커밋 전에
+   신규/중복/오류를 먼저 보여준다.
+   ══════════════════════════════════════════════════════════════ */
+
+const IMPORT_SPECS = {
+  customers: {
+    label: '고객사',
+    key: '고객사명',
+    cols: [
+      { f: 'name',   h: ['고객사명', '병원명', '거래처명', '이름'], req: true },
+      { f: 'type',   h: ['구분', '병원구분', '유형'] },
+      { f: 'doctor', h: ['원장', '원장명', '원장/담당', '대표자'] },
+      { f: 'dept',   h: ['진료과', '과'] },
+      { f: 'grade',  h: ['등급'] },
+      { f: 'sido',   h: ['시도', '지역', '광역'] },
+      { f: 'gugun',  h: ['구군', '시군구'] },
+      { f: 'rep',    h: ['담당영업', '담당자', '영업담당'] },
+      { f: 'phone',  h: ['전화', '대표전화', '연락처'] },
+      { f: 'zip',    h: ['우편번호'] },
+      { f: 'addr',   h: ['주소'] },
+      { f: 'addr2',  h: ['상세주소'] },
+      { f: 'tags',   h: ['태그'], list: true },
+      { f: 'memo',   h: ['메모', '비고'] }
+    ]
+  },
+  products: {
+    label: '제품',
+    key: '제품코드',
+    cols: [
+      { f: 'code',  h: ['제품코드', '코드'], req: true },
+      { f: 'name',  h: ['제품명', '품명', '이름'], req: true },
+      { f: 'cat',   h: ['분류', '구분'] },
+      { f: 'price', h: ['단가', '가격', '판매가'], money: true },
+      { f: 'maker', h: ['제조사', '메이커'] },
+      { f: 'memo',  h: ['메모', '비고'] }
+    ]
+  },
+  equipments: {
+    label: '장비',
+    key: '시리얼',
+    cols: [
+      { f: 'custName',    h: ['고객사명', '병원명', '설치처'], req: true },
+      { f: 'model',       h: ['모델', '모델명', '장비명'], req: true },
+      { f: 'serial',      h: ['시리얼', '시리얼번호', 'S/N'], req: true },
+      { f: 'installDate', h: ['설치일', '납품일'], date: true },
+      { f: 'warrantyEnd', h: ['보증만료', '보증종료일', '보증만료일'], date: true },
+      { f: 'status',      h: ['상태'] },
+      { f: 'memo',        h: ['메모', '비고'] }
+    ]
+  }
+};
+
+let IM_ROWS = null;     // 파싱·검증 결과
+
+function openImportModal(kind) {
+  if (!ensureAdmin()) return;
+  IM_ROWS = null;
+  $('im-kind').value = kind || 'customers';
+  $('im-file').value = '';
+  $('im-preview').innerHTML = '';
+  $('im-foot').textContent = '';
+  $('im-go').disabled = true;
+  imKindChange();
+  new bootstrap.Modal($('importModal')).show();
+}
+
+function imKindChange() {
+  const spec = IMPORT_SPECS[$('im-kind').value];
+  IM_ROWS = null;
+  $('im-preview').innerHTML = '';
+  $('im-go').disabled = true;
+  $('im-sub').textContent = spec.label + ' 대장을 한 번에 등록합니다 · 중복 기준: ' + spec.key;
+  $('im-guide').innerHTML = '<b>인식하는 열 이름</b>'
+    + '<div class="im-cols">' + spec.cols.map(c =>
+        '<span class="im-col' + (c.req ? ' req' : '') + '">' + esc(c.h[0])
+        + (c.req ? ' *' : '')
+        + (c.h.length > 1 ? '<u>' + esc(c.h.slice(1).join(' / ')) + '</u>' : '') + '</span>').join('')
+    + '</div>'
+    + '<div class="im-note">첫 행이 헤더여야 합니다. 열 <b>순서는 상관없고</b>, 위 이름 중 아무거나 쓰면 인식합니다. '
+    + '* 표시는 필수입니다. 인식하지 못한 열은 무시됩니다.</div>';
+}
+
+/* 양식 파일 — 어떤 열이 필요한지 말로 설명하는 것보다 빈 양식을 주는 게 빠르다 */
+function imTemplate() {
+  const kind = $('im-kind').value, spec = IMPORT_SPECS[kind];
+  const head = {};
+  spec.cols.forEach(c => { head[c.h[0] + (c.req ? '*' : '')] = ''; });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([head]), spec.label);
+  XLSX.writeFile(wb, 'urolink-' + kind + '-양식.xlsx');
+}
+
+function imRead(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+      imParse(raw);
+    } catch (err) {
+      IM_ROWS = null;
+      $('im-preview').innerHTML = '<div class="im-err">파일을 읽지 못했습니다: ' + esc(err.message) + '</div>';
+      $('im-go').disabled = true;
+    }
+  };
+  rd.onerror = () => { $('im-preview').innerHTML = '<div class="im-err">파일을 읽지 못했습니다.</div>'; };
+  rd.readAsArrayBuffer(file);
+}
+
+/* 헤더 이름 정규화 — 공백·괄호·별표를 무시해 '고객사명 *' 도 인식 */
+const imNorm = h => String(h == null ? '' : h).replace(/[\s()*]/g, '').toLowerCase();
+
+function imParse(raw) {
+  const kind = $('im-kind').value, spec = IMPORT_SPECS[kind];
+  IM_ROWS = null;                 // 이전 파일 결과를 확실히 버린다
+  if (!raw.length) {
+    $('im-preview').innerHTML = '<div class="im-err">데이터 행이 없습니다.</div>';
+    $('im-go').disabled = true;
+    return;
+  }
+  /* 실제 헤더 → 필드 매핑 */
+  const heads = Object.keys(raw[0]);
+  const map = {};
+  spec.cols.forEach(c => {
+    const want = c.h.map(imNorm);
+    const hit = heads.find(h => want.indexOf(imNorm(h)) >= 0);
+    if (hit) map[c.f] = hit;
+  });
+  const missing = spec.cols.filter(c => c.req && !map[c.f]);
+  if (missing.length) {
+    $('im-preview').innerHTML = '<div class="im-err">필수 열을 찾지 못했습니다: <b>'
+      + missing.map(c => esc(c.h[0])).join(', ') + '</b><br>'
+      + '<span>파일의 첫 행: ' + esc(heads.join(' | ')) + '</span></div>';
+    $('im-go').disabled = true;
+    return;
+  }
+
+  const seen = {};
+  IM_ROWS = raw.map((r, i) => {
+    const o = { _row: i + 2, _st: 'new', _msg: '' };
+    spec.cols.forEach(c => {
+      if (!map[c.f]) return;
+      let v = trimv(r[map[c.f]]);
+      if (c.money) v = num(String(v).replace(/[^0-9.-]/g, ''));
+      else if (c.date) v = imDate(v);
+      else if (c.list) v = v ? v.split(/[,;/]/).map(x => x.trim()).filter(Boolean) : [];
+      o[c.f] = v;
+    });
+    /* 검증 */
+    const miss = spec.cols.filter(c => c.req && !(c.list ? o[c.f].length : trimv(o[c.f])));
+    if (miss.length) { o._st = 'err'; o._msg = miss.map(c => c.h[0]).join(', ') + ' 없음'; return o; }
+
+    if (kind === 'customers') {
+      const dup = DB.customers.find(x => normName(x.name) === normName(o.name));
+      if (dup) { o._st = 'dup'; o._msg = '기존 [' + dup.name + '] 과 동일 — 빈 항목만 채웁니다'; o._id = dup.id; }
+      if (o.grade && ['A', 'B', 'C', 'D'].indexOf(String(o.grade).toUpperCase()) < 0) {
+        o.grade = 'C'; o._msg = (o._msg ? o._msg + ' · ' : '') + '등급 인식 불가 → C';
+      }
+    } else if (kind === 'products') {
+      const dup = DB.products.find(x => trimv(x.code) === trimv(o.code));
+      if (dup) { o._st = 'dup'; o._msg = '기존 코드 — 값을 갱신합니다'; }
+      if (o.cat !== '장비' && o.cat !== '소모품') {
+        o.cat = '소모품'; o._msg = (o._msg ? o._msg + ' · ' : '') + '분류 인식 불가 → 소모품';
+      }
+    } else {
+      const dup = DB.equipments.find(x => trimv(x.serial) && trimv(x.serial) === trimv(o.serial));
+      if (dup) { o._st = 'dup'; o._msg = '기존 시리얼 — 값을 갱신합니다'; o._id = dup.id; }
+      const c = findCust(o.custName);
+      o._newCust = !c;
+      if (!c) o._msg = (o._msg ? o._msg + ' · ' : '') + '고객사 [' + o.custName + '] 신규 등록됨';
+      if (!o.status) o.status = '정상';
+    }
+    /* 파일 안에서의 중복 */
+    const k = kind === 'products' ? trimv(o.code)
+            : kind === 'equipments' ? trimv(o.serial) : normName(o.name);
+    if (k && seen[k]) { o._st = 'err'; o._msg = '파일 내 ' + seen[k] + '행과 중복'; }
+    else if (k) seen[k] = o._row;
+    return o;
+  });
+  imPreview();
+}
+
+/* 엑셀 날짜는 문자열·Date·시리얼번호가 섞여 들어온다 */
+function imDate(v) {
+  if (!v) return '';
+  if (v instanceof Date && !isNaN(v)) return ymd(v);
+  const t = String(v).trim();
+  let m = t.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (m) return m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]);
+  m = t.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  /* 엑셀 시리얼 (1900-01-01 기준) */
+  if (/^\d{5}$/.test(t)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + num(t) * 86400000);
+    return isNaN(d) ? '' : ymd(d);
+  }
+  return '';
+}
+
+function imPreview() {
+  const kind = $('im-kind').value, spec = IMPORT_SPECS[kind];
+  const rows = IM_ROWS || [];
+  const nNew = rows.filter(r => r._st === 'new').length;
+  const nDup = rows.filter(r => r._st === 'dup').length;
+  const nErr = rows.filter(r => r._st === 'err').length;
+  const show = spec.cols.filter(c => !c.list).slice(0, 6);
+  const badge = { new: '<span class="im-b new">신규</span>', dup: '<span class="im-b dup">중복</span>',
+                  err: '<span class="im-b err">오류</span>' };
+  $('im-preview').innerHTML = '<div class="im-stat">'
+      + '<span class="s-new">신규 ' + nNew + '</span>'
+      + '<span class="s-dup">중복 ' + nDup + '</span>'
+      + '<span class="s-err">오류 ' + nErr + '</span>'
+      + '<u>총 ' + rows.length + '행</u></div>'
+    + '<div style="overflow-x:auto;max-height:420px"><table class="table table-sm im-t mb-0">'
+    + '<thead><tr><th>행</th><th>상태</th>'
+    + show.map(c => '<th>' + esc(c.h[0]) + '</th>').join('')
+    + '<th>비고</th></tr></thead><tbody>'
+    + rows.map(r => '<tr class="' + r._st + '"><td>' + r._row + '</td><td>' + badge[r._st] + '</td>'
+        + show.map(c => '<td>' + esc(c.money ? comma(r[c.f]) : (r[c.f] || '-')) + '</td>').join('')
+        + '<td class="im-msg">' + esc(r._msg || '') + '</td></tr>').join('')
+    + '</tbody></table></div>';
+  $('im-foot').textContent = nErr
+    ? '오류 ' + nErr + '행은 건너뜁니다. 나머지 ' + (nNew + nDup) + '행을 가져옵니다.'
+    : (nNew + nDup) + '행을 가져옵니다.';
+  $('im-go').disabled = !(nNew + nDup);
+}
+
+function imCommit() {
+  if (!ensureAdmin()) return;
+  const kind = $('im-kind').value, spec = IMPORT_SPECS[kind];
+  const rows = (IM_ROWS || []).filter(r => r._st !== 'err');
+  if (!rows.length) return alert('가져올 행이 없습니다. 파일을 다시 선택해주세요.');
+  if (!confirm(spec.label + ' ' + rows.length + '행을 가져옵니다.' + NL
+    + '중복 행은 기존 데이터를 갱신합니다. 계속할까요?')) return;
+
+  let added = 0, updated = 0, newCusts = 0;
+  rows.forEach(r => {
+    if (kind === 'customers') {
+      if (r._st === 'dup') {
+        const c = custById(r._id);
+        if (!c) return;
+        /* 중복은 덮어쓰지 않는다 — 화면에 안내한 대로 빈 항목만 채운다 */
+        spec.cols.forEach(col => {
+          if (col.f === 'tags') { c.tags = [...new Set([...(c.tags || []), ...(r.tags || [])])]; return; }
+          if (!trimv(c[col.f]) && trimv(r[col.f])) c[col.f] = r[col.f];
+        });
+        c.updatedAt = today(); c.updatedBy = curUserName();
+        updated++;
+      } else {
+        DB.customers.push({ id: uid(), name: r.name, type: r.type || '의원', doctor: r.doctor || '',
+          dept: r.dept || '비뇨의학과', grade: (r.grade || 'C').toUpperCase(), sido: r.sido || '',
+          gugun: r.gugun || '', rep: r.rep || '', phone: r.phone || '', zip: r.zip || '',
+          addr: r.addr || '', addr2: r.addr2 || '', tags: r.tags || [], memo: r.memo || '',
+          contacts: [], createdAt: today(), imported: true });
+        added++;
+      }
+    } else if (kind === 'products') {
+      const ex = DB.products.find(x => trimv(x.code) === trimv(r.code));
+      if (ex) {
+        Object.assign(ex, { name: r.name, cat: r.cat, price: num(r.price), maker: r.maker || ex.maker || '',
+          memo: r.memo || ex.memo || '' });
+        updated++;
+      } else {
+        DB.products.push({ code: r.code, name: r.name, cat: r.cat, price: num(r.price),
+          maker: r.maker || '', memo: r.memo || '', createdAt: today(), imported: true });
+        added++;
+      }
+    } else {
+      /* 장비는 고객사가 있어야 붙는다. 없으면 만들어 준다(안내는 미리보기에 표시했다) */
+      let c = findCust(r.custName);
+      if (!c) {
+        c = { id: uid(), name: r.custName, type: '의원', doctor: '', dept: '비뇨의학과', grade: 'C',
+              sido: '', gugun: '', rep: '', phone: '', addr: '', tags: [], memo: '',
+              contacts: [], createdAt: today(), imported: true };
+        DB.customers.push(c);
+        newCusts++;
+      }
+      const row = { custId: c.id, model: r.model, serial: r.serial, installDate: r.installDate || '',
+        warrantyEnd: r.warrantyEnd || '', status: r.status || '정상', memo: r.memo || '' };
+      if (r._st === 'dup' && r._id) {
+        const ex = DB.equipments.find(x => x.id === r._id);
+        if (ex) { Object.assign(ex, row); updated++; }
+      } else {
+        DB.equipments.push(Object.assign({ id: uid(), as: [], createdAt: today(), imported: true }, row));
+        added++;
+      }
+    }
+  });
+  save();
+  refreshDatalists();
+  bootstrap.Modal.getInstance($('importModal')).hide();
+  if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
+  toast(spec.label + ' 가져오기 완료 — 신규 ' + added + ' · 갱신 ' + updated
+    + (newCusts ? ' · 고객사 신규 ' + newCusts : ''));
+}
+
 function renderSales() {
   const openD = DB.deals.filter(d => OPEN_STAGES.includes(d.stage));
   const y = new Date().getFullYear();
@@ -1558,7 +2393,17 @@ function dropCard(e, stage) {
   e.preventDefault(); e.currentTarget.classList.remove('drag-over');
   const d = DB.deals.find(x => x.id === DRAG_ID); DRAG_ID = null;
   if (!d || d.stage === stage) return;
+  /* 실주 칸으로 끌어다 놓으면 사유 입력을 먼저 받는다 */
+  if (stage === '실주' && !trimv(d.lostReason)) {
+    openDealModal(d.id);
+    $('d-stage').value = '실주';
+    dealStageChange();
+    return;
+  }
+  const before = auditSnap(d);
   d.stage = stage; d.prob = stageOf(stage).prob;
+  if (stage === '계약완료') d.closedAt = today();
+  auditDiff('deals', d.id, before, d, custName(d.custId));
   save(); toast(custName(d.custId) + ' → ' + stage);
   renderSales();
 }
@@ -1620,6 +2465,8 @@ function openDrawer(id) {
       <div class="dw-row"><div class="k">다음 액션</div><div class="v">${esc(d.nextAction || '-')}${d.nextActionDate ? ` <span style="color:#94a3b8">(${fmtDate(d.nextActionDate)})</span>` : ''}</div></div>
       <div class="dw-row"><div class="k">메모</div><div class="v" style="white-space:pre-wrap">${esc(d.memo || '-')}</div></div>
       <div class="dw-row"><div class="k">고객 등급</div><div class="v">${c ? `<span class="grade-badge grade-${esc(c.grade)}">${esc(c.grade)}</span> ${esc(c.sido || '')} ${esc(c.gugun || '')}` : '-'}</div></div>
+      <div class="wt-st mt-3">변경 이력 (${auditsOf('deals', d.id).length})</div>
+      ${auditHtml('deals', d.id, '변경 이력이 없습니다 — 이후 금액·단계 수정이 여기에 남습니다')}
       <div class="wt-st mt-3">최근 상담 (${logs.length})</div>
       ${logs.length ? logs.map(l => `<div style="padding:8px 0;border-bottom:1px solid #f3f4f6">
         <div style="font-size:11.5px;color:#94a3b8">${fmtDate(l.date)} · ${esc(l.type)} · ${esc(l.rep || '')}</div>
@@ -1627,6 +2474,7 @@ function openDrawer(id) {
         : '<div style="color:#94a3b8;font-size:12.5px;padding:8px 0">상담 이력이 없습니다</div>'}
     </div>
     <div class="dw-foot">
+      ${isAdmin() ? `<button class="btn btn-outline-danger btn-sm me-auto" onclick="if(deleteDealById('${d.id}'))closeDrawer()"><i class="bi bi-trash me-1"></i>삭제</button>` : ''}
       <button class="btn btn-outline-secondary btn-sm" onclick="closeDrawer();openCustDetail('${d.custId}')"><i class="bi bi-hospital me-1"></i>고객사</button>
       <button class="btn btn-outline-primary btn-sm" onclick="closeDrawer();openLogModal(null,'${d.custId}')"><i class="bi bi-journal-plus me-1"></i>일지</button>
       <button class="btn btn-primary btn-sm" onclick="closeDrawer();openDealModal('${d.id}')"><i class="bi bi-pencil me-1"></i>수정</button>
@@ -1637,8 +2485,16 @@ function openDrawer(id) {
 function closeDrawer() { $('deal-drawer').classList.remove('open'); $('deal-drawer-bg').style.display = 'none'; DRAWER_ID = null; }
 function drawerStage(s) {
   const d = DB.deals.find(x => x.id === DRAWER_ID); if (!d) return;
+  /* 실주로 바꿀 때는 사유를 받아야 한다 — 칩으로 넘기면 사유 없는 실주가 쌓인다 */
+  if (s === '실주' && !trimv(d.lostReason)) {
+    closeDrawer();
+    setTimeout(() => { openDealModal(d.id); $('d-stage').value = '실주'; dealStageChange(); }, 260);
+    return;
+  }
+  const before = auditSnap(d);
   d.stage = s; d.prob = stageOf(s).prob;
   if (s === '계약완료' || s === '실주') d.closedAt = today();
+  auditDiff('deals', d.id, before, d, custName(d.custId));
   save(); openDrawer(d.id); renderSales();
 }
 
@@ -1712,8 +2568,10 @@ function saveDeal() {
   };
   if (id) {
     const d = DB.deals.find(x => x.id === id);
+    const before = auditSnap(d);
     Object.assign(d, row);
     if ((row.stage === '계약완료' || row.stage === '실주') && !d.closedAt) d.closedAt = today();
+    auditDiff('deals', id, before, d, custName(d.custId));
   } else {
     DB.deals.push(Object.assign({ id: uid(), createdAt: today(), closedAt: '' }, row));
   }
@@ -1722,11 +2580,27 @@ function saveDeal() {
   renderSales(); if (CUR_PAGE === 'overview') renderOverview();
 }
 function deleteDeal() {
-  if (!ensureAdmin()) return;
-  const id = $('d-id').value; if (!id) return;
-  if (!confirm('이 딜을 삭제할까요?')) return;
+  const id = $('d-id').value;
+  if (!id) return;
+  if (!deleteDealById(id)) return;
+  bootstrap.Modal.getInstance($('dealModal')).hide();
+}
+/* 상세 패널(드로어)에서도 삭제할 수 있어야 한다 — 수정 모달을 거치지 않고 바로 */
+function deleteDealById(id) {
+  if (!ensureAdmin()) return false;
+  const d = DB.deals.find(x => x.id === id);
+  if (!d) return false;
+  if (!confirm('[' + custName(d.custId) + ' · ' + (d.product || '') + ' · ' + comma(d.amount) + '원] 딜을 삭제할까요?'
+    /* 계약완료 딜은 매출로 집계되므로 삭제하면 실적 수치가 함께 내려간다 */
+    + (d.stage === '계약완료' ? NL + '⚠ 계약완료 딜입니다. 삭제하면 매출 집계에서도 빠집니다.' : '')
+    + NL + '되돌릴 수 없습니다.')) return false;
   DB.deals = DB.deals.filter(x => x.id !== id);
-  save(); bootstrap.Modal.getInstance($('dealModal')).hide(); renderSales();
+  save();
+  renderSales();
+  if (CUR_PAGE === 'overview') renderOverview();
+  if (CUR_PAGE === 'dashboard') renderDashboard();
+  toast('딜을 삭제했습니다');
+  return true;
 }
 
 /* ── 상담일지 ── */
@@ -2393,8 +3267,16 @@ function quoteRecalc() {
 }
 function nextQuoteNo() {
   const yy = String(new Date().getFullYear()).slice(2);
-  const seq = DB.quotes.filter(q => String(q.no).startsWith('UL' + yy)).length + 1;
-  return 'UL' + yy + '-' + pad(seq);
+  const pre = 'UL' + yy + '-';
+  /* 건수 + 1 로 만들면 중간 견적을 삭제한 뒤 번호가 중복된다.
+     (3건 중 2번을 지우면 건수가 2 → 다시 UL26-02 발급)
+     실제 발급된 최대 번호를 기준으로 잡는다. */
+  const maxSeq = DB.quotes.reduce((mx, q) => {
+    const no = String(q.no || '');
+    if (!no.startsWith(pre)) return mx;
+    return Math.max(mx, num(no.slice(pre.length)));
+  }, 0);
+  return pre + pad(maxSeq + 1);
 }
 function saveQuote(doPrint) {
   const items = readQuoteItems();
@@ -3015,7 +3897,11 @@ function renderEquip() {
     <div class="wt-fact clickable" onclick="drillEquip('수리중 장비','A/S 진행 중',DB.equipments.filter(function(e){return e.status==='수리중'}))">
       <div class="l">수리중</div><b class="${all.filter(e => e.status === '수리중').length ? 'rd' : ''}">${all.filter(e => e.status === '수리중').length}</b><div class="s">A/S 진행</div></div>
     <div class="wt-fact clickable" onclick="drillEquip('A/S 이력 있는 장비','누적 ${all.reduce((s, e) => s + (e.as || []).length, 0)}회',DB.equipments.filter(function(e){return (e.as||[]).length>0}))">
-      <div class="l">A/S 누적</div><b>${all.reduce((s, e) => s + (e.as || []).length, 0)}회</b><div class="s">이력 기준</div></div>`;
+      <div class="l">A/S 누적</div><b>${all.reduce((s, e) => s + (e.as || []).length, 0)}회</b><div class="s">이력 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillRebuy(true)">
+      <div class="l">소모품 재구매 도래</div>
+      <b class="${rebuyDue().length ? 'rd' : ''}">${rebuyDue().length}</b>
+      <div class="s">${money(rebuyDue().reduce((s, x) => s + x.avgAmt, 0))}원 규모</div></div>`;
 
   const rows = all.filter(e => {
     if (st && e.status !== st) return false;
@@ -3194,8 +4080,14 @@ function renderAnalysis() {
   const inP = DB.deals.filter(d => inRange(d.expectedDate, a, b));
   const wonD = inP.filter(d => d.stage === '계약완료');
   const lostD = inP.filter(d => d.stage === '실주');
+  /* 드릴다운은 클릭 시점에 다시 계산하므로 기간을 넘겨둔다 */
+  DRL.anaA = a; DRL.anaB = b;
 
-  if (ANA_TAB === 'rep') {
+  if (ANA_TAB === 'target') {
+    $('ana-body').innerHTML = renderTargetTab(y, a, b, wonD);
+  } else if (ANA_TAB === 'activity') {
+    $('ana-body').innerHTML = renderActivityTab(y, a, b, wonD);
+  } else if (ANA_TAB === 'rep') {
     const reps = [...new Set([...repNames(), ...inP.map(d => d.rep).filter(Boolean)])];
     const stats = reps.map(r => {
       const w = wonD.filter(d => d.rep === r), l = lostD.filter(d => d.rep === r);
