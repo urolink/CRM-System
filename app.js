@@ -5,6 +5,8 @@
 
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
+/* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
+const APP_VERSION = '20260730a';
 
 const STAGES = [
   {name:'리드발굴',  prob:10,  color:'#94a3b8'},
@@ -478,7 +480,8 @@ function refreshSelects() {
   fillSelect($('l-interest'), prodOpts, { blank: '(없음)' });
   fillSelect($('e-model'), prodOpts.filter(p => { const x = prodByCode(p.v); return x && x.cat === '장비'; }), { blank: '선택' });
   ['d-rep','l-rep','s-rep','q-rep','c-rep-in','e-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '(미지정)' }));
-  ['pipe-rep','sch-rep','c-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
+  /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
+  ['pipe-rep','c-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
   fillSelect($('d-stage'), STAGES.map(s => s.name));
   fillSelect($('dl-stage'), STAGES.map(s => s.name), { blank: '전체 단계', keep: true });
   fillSelect($('p-cat'), [...new Set(DB.products.map(p => p.cat))], { blank: '전체 분류', keep: true });
@@ -669,9 +672,17 @@ function dealYears() {
 }
 function initPeriodSel(pfx) {
   const ySel = $(pfx + '-year');
-  if (!ySel || ySel.options.length) return;
-  fillSelect(ySel, dealYears().map(y => ({ v: y, l: y + '년' })));
-  ySel.value = new Date().getFullYear();
+  if (!ySel) return;
+  const years = dealYears();
+  const sig = years.join(',');
+  if (ySel.dataset.sig === sig) return;         // 연도 목록이 그대로면 사용자 선택 유지
+  const first = !ySel.options.length;
+  const cur = ySel.value;
+  fillSelect(ySel, years.map(y => ({ v: y, l: y + '년' })));
+  ySel.dataset.sig = sig;
+  /* 서버에서 데이터를 다시 불러와 연도가 늘어난 경우에도 선택값 유지 */
+  ySel.value = (!first && cur && years.includes(num(cur))) ? cur : new Date().getFullYear();
+  if (!first) return;
   const months = Array.from({ length: 12 }, (_, i) => ({ v: i + 1, l: (i + 1) + '월' }));
   fillSelect($(pfx + '-from'), months); $(pfx + '-from').value = 1;
   fillSelect($(pfx + '-to'), months);   $(pfx + '-to').value = new Date().getMonth() + 1;
@@ -2484,8 +2495,29 @@ window.addEventListener('hashchange', () => {
 });
 /* 다른 탭·다른 사람의 변경을 반영: 탭으로 돌아올 때 다시 불러오기 */
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && isRemote() && !SYNCING) pullRemote(false);
+  if (document.hidden) return;
+  if (isRemote() && !SYNCING) pullRemote(false);
+  checkVersion();
 });
+
+/* ── 자동 최신화: Ctrl+Shift+R 없이 새 배포를 감지해 반영 ──
+   version.json 을 캐시 없이 조회해 APP_VERSION 과 다르면 알림 바를 띄운다.
+   에셋은 index.html 에서 ?v=<버전> 으로 불러오므로 새로고침만으로 최신 파일이 적용된다. */
+async function checkVersion() {
+  if (location.protocol === 'file:') return;
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || !j.version || j.version === APP_VERSION) return;
+    const openModal = document.querySelector('.modal.show');
+    const drawerOpen = $('deal-drawer') && $('deal-drawer').classList.contains('open');
+    if (openModal || drawerOpen) { $('update-bar').classList.add('on'); return; }  // 입력 중이면 알림만
+    $('update-bar').classList.add('on');
+  } catch (e) { /* 오프라인 등 — 조용히 무시 */ }
+}
+function applyUpdate() { location.reload(); }
+setInterval(checkVersion, 10 * 60 * 1000);   /* 10분마다 확인 */
 
 function startApp() {
   $('nav-refresh').style.display = isRemote() ? 'flex' : 'none';
@@ -2494,6 +2526,7 @@ function startApp() {
   refreshCounts();
   const p = location.hash.replace('#', '');
   showPage(PAGES.includes(p) ? p : 'overview');
+  checkVersion();
 }
 
 (async function boot() {

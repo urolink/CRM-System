@@ -244,6 +244,19 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .qp-items th{background:#f1f5f9;border:1px solid #94a3b8;padding:7px 8px;font-size:11.5px;font-weight:700}
 .qp-items td{border:1px solid #cbd5e1;padding:6px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
 
+/* ── 새 버전 알림 바 ── */
+#update-bar{position:fixed;left:50%;transform:translateX(-50%) translateY(-140%);top:12px;z-index:10500;
+  background:#0f172a;color:#e2e8f0;border-radius:12px;padding:10px 14px;font-size:13px;display:flex;
+  align-items:center;gap:10px;box-shadow:0 10px 30px rgba(15,23,42,.35);transition:transform .3s;max-width:94vw}
+#update-bar.on{transform:translateX(-50%) translateY(0)}
+#update-bar i{color:#5eead4;font-size:15px}
+#update-bar button{background:var(--blue);border:0;color:#fff;border-radius:8px;padding:5px 12px;
+  font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+#update-bar button:hover{background:var(--blue-dark)}
+#update-bar button.ub-later{background:none;border:1px solid #475569;color:#94a3b8;font-weight:500}
+#update-bar button.ub-later:hover{background:#1e293b;color:#e2e8f0}
+@media print{#update-bar{display:none!important}}
+
 /* ── 토스트 ── */
 .saving-toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:9999;display:none;box-shadow:0 4px 12px rgba(0,0,0,.2);align-items:center;gap:8px}
 .saving-toast.show{display:flex}
