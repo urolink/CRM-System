@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730d';
+const APP_VERSION = '20260730e';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -1794,8 +1794,10 @@ function quoteHTML(x) {
 const QUOTE_CSS = `
   *{box-sizing:border-box}
   body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff;color:#182230;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  @page{size:A4;margin:14mm}
-  .qp{padding:0;font-size:12px;letter-spacing:-.01em}
+  /* 여백 0 → 브라우저가 머리글·바닥글(날짜·제목·about:blank·페이지수)을 그릴 자리가 없어져 사라진다.
+     실제 인쇄 여백은 아래 .qp 의 padding 으로 준다. */
+  @page{size:A4;margin:0}
+  .qp{padding:14mm 13mm;font-size:12px;letter-spacing:-.01em}
   .qp-brand{display:flex;align-items:center;gap:11px;padding-bottom:12px;border-bottom:2px solid #16324f}
   .qp-mark{width:34px;height:34px;border-radius:9px;background:#0e7490;color:#fff;font-weight:800;font-size:19px;
     display:flex;align-items:center;justify-content:center;flex-shrink:0}
