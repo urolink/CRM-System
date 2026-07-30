@@ -14,8 +14,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link href="app.css?v=20260730a" rel="stylesheet">
-<script src="config.js?v=20260730a"></script>
+<link href="app.css?v=20260730b" rel="stylesheet">
+<script src="config.js?v=20260730b"></script>
 </head>
 <body>
 
@@ -79,16 +79,20 @@
       <li><a class="nav-link" data-page="customers" onclick="showPage('customers',this)"><i class="bi bi-hospital"></i>고객사·장비<span class="nav-count" id="cnt-cust"></span></a></li>
       <li><a class="nav-link" data-page="products" onclick="showPage('products',this)"><i class="bi bi-tags"></i>제품<span class="nav-count" id="cnt-prod"></span></a></li>
       <li><a class="nav-link" data-page="analysis" onclick="showPage('analysis',this)"><i class="bi bi-graph-up-arrow"></i>영업 분석</a></li>
-      <li><a class="nav-link" data-page="settings" onclick="showPage('settings',this)"><i class="bi bi-gear"></i>설정·데이터</a></li>
+      <li><a class="nav-link" data-page="settings" onclick="showPage('settings',this)"><i class="bi bi-people"></i>사용자 관리</a></li>
     </ul>
   </div>
 
   <div class="sidebar-footer">
     <div id="sidebar-tools">
-      <div class="sb-tool" onclick="openSearch()"><i class="bi bi-search"></i><span class="sb-lb">통합 검색</span>
-        <kbd style="font-size:9px;background:#e2e8f0;border:1px solid #cbd5e1;border-radius:4px;padding:1px 4px;color:#475569">Ctrl K</kbd></div>
-      <div class="sb-tool" id="nav-refresh" onclick="pullRemote(true)" style="display:none"><i class="bi bi-arrow-repeat"></i><span class="sb-lb">새로고침</span></div>
-      <div class="sb-tool" onclick="window.print()"><i class="bi bi-printer"></i><span class="sb-lb">인쇄 · PDF</span></div>
+      <div class="sb-tool" id="bell-btn" onclick="toggleBell()"><i class="bi bi-bell"></i><span class="sb-lb">알림</span>
+        <span id="bell-badge" style="display:none">0</span></div>
+    </div>
+    <!-- 알림 패널 -->
+    <div id="bell-panel">
+      <div class="bp-head">알림 <span id="bp-count"></span>
+        <button onclick="toggleBell()" title="닫기"><i class="bi bi-x-lg"></i></button></div>
+      <div class="bp-body" id="bp-body"></div>
     </div>
     <div id="sidebar-user" style="display:none">
       <div class="su-row">
@@ -451,51 +455,67 @@
     </table></div></div>
   </div>
 
-  <!-- ────────── 설정·데이터 ────────── -->
+  <!-- ────────── 사용자 관리 ────────── -->
   <div id="page-settings" class="page">
     <div class="wt-mast">
-      <div><div class="kick">UROLINK SETTINGS</div><div class="t"><i class="bi bi-gear me-2"></i>설정 · 데이터</div></div>
+      <div><div class="kick">UROLINK USERS</div><div class="t"><i class="bi bi-people me-2"></i>사용자 관리</div></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="openPwModal()"><i class="bi bi-key me-1"></i>내 비밀번호 변경</button>
+        <a class="btn btn-primary btn-sm" id="sb-users-link" target="_blank" rel="noopener"><i class="bi bi-person-plus me-1"></i>계정 발급</a>
+      </div>
     </div>
+
+    <div class="mb-3" id="user-kpi"></div>
+
+    <!-- 로그인 계정 -->
+    <div class="card p-3 mb-3" id="usermgmt-card" style="display:none">
+      <div class="wt-st">로그인 계정 <span style="font-size:11px;font-weight:500;color:#94a3b8">· 관리자만 표시</span></div>
+      <div style="font-size:12.5px;color:#64748b;margin-bottom:12px">
+        계정 발급은 우측 상단 <b>계정 발급</b> → Supabase 대시보드 → Authentication → Users → <b>Add user</b>
+        (<b>Auto Confirm User</b> 체크). 추가하면 아래 목록에 자동으로 나타납니다.
+        <br><b>관리자</b>는 데이터 삭제와 역할 변경까지 가능하고, <b>일반</b>은 조회·추가·수정만 됩니다.
+      </div>
+      <div id="user-list"></div>
+      <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">
+        이름은 로그인 화면에 표시되고 알림·일 요약에서 본인 식별에 쓰입니다.
+        아래 <b>영업 담당자</b> 명단의 이름과 같게 맞추면 <b>내 일정</b> 버튼이 동작합니다.
+      </div>
+    </div>
+    <div class="card p-3 mb-3" id="usermgmt-none" style="display:none">
+      <div class="wt-st">로그인 계정</div>
+      <div style="font-size:12.5px;color:#64748b">
+        관리자만 계정 목록을 볼 수 있습니다. 권한이 필요하면 관리자에게 요청해주세요.
+      </div>
+    </div>
+
     <div class="row g-3">
-      <div class="col-lg-6">
+      <!-- 영업 담당자 -->
+      <div class="col-lg-7">
         <div class="card p-3 h-100">
-          <div class="wt-st">담당자 관리</div>
+          <div class="wt-st">영업 담당자 <span style="font-size:11px;font-weight:500;color:#94a3b8">· 딜·일정·고객사에 배정되는 이름</span></div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:10px">
+            로그인 계정과는 별개입니다. 계정이 없는 사람(예: 서비스 엔지니어)도 담당자로 넣을 수 있습니다.
+          </div>
           <div class="d-flex gap-2 mb-2">
-            <input type="text" id="rep-name" class="form-control form-control-sm" placeholder="이름">
-            <input type="text" id="rep-role" class="form-control form-control-sm" placeholder="직책/파트" style="max-width:130px">
-            <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addRep()">추가</button>
+            <input type="text" id="rep-name" class="form-control form-control-sm" placeholder="이름" onkeydown="if(event.key==='Enter')addRep()">
+            <input type="text" id="rep-role" class="form-control form-control-sm" placeholder="직책 / 파트" style="max-width:150px" onkeydown="if(event.key==='Enter')addRep()">
+            <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addRep()"><i class="bi bi-plus-lg"></i> 추가</button>
           </div>
           <div id="rep-list"></div>
         </div>
       </div>
-      <div class="col-lg-6">
+      <!-- 데이터 -->
+      <div class="col-lg-5">
         <div class="card p-3 h-100">
-          <div class="wt-st">데이터 백업 · 복원</div>
-          <p style="font-size:12.5px;color:#64748b">현재 데이터는 이 브라우저에만 저장됩니다. 다른 PC로 옮기거나 백업할 때 JSON 파일을 사용하세요.</p>
+          <div class="wt-st">데이터 백업</div>
+          <p style="font-size:12.5px;color:#64748b" id="backup-note"></p>
           <div class="d-flex gap-2 flex-wrap">
             <button class="btn btn-outline-primary btn-sm" onclick="exportJSON()"><i class="bi bi-download me-1"></i>JSON 내보내기</button>
             <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)">
             <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('import-file').click()"><i class="bi bi-upload me-1"></i>JSON 불러오기</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="exportAllExcel()"><i class="bi bi-file-earmark-excel me-1"></i>전체 엑셀</button>
           </div>
-          <hr>
-          <div class="wt-st">초기화</div>
-          <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-outline-secondary btn-sm" onclick="loadSample()"><i class="bi bi-database-add me-1"></i>샘플 데이터 다시 넣기</button>
-            <button class="btn btn-outline-danger btn-sm" onclick="resetAll()"><i class="bi bi-trash me-1"></i>전체 삭제</button>
-          </div>
           <div class="mt-3" style="font-size:12px;color:#94a3b8" id="storage-info"></div>
-        </div>
-      </div>
-      <div class="col-12" id="usermgmt-card" style="display:none">
-        <div class="card p-3">
-          <div class="wt-st">사용자 · 접속 권한 <span style="font-size:11px;font-weight:500;color:#94a3b8">· 관리자만 표시</span></div>
-          <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">
-            계정 발급은 Supabase 대시보드 → Authentication → Users → <b>Add user</b> 에서 합니다.
-            추가하면 아래 목록에 자동으로 나타납니다. 여기서는 역할만 바꿉니다.
-            <span style="color:#b45309">관리자는 데이터 삭제 권한이 있습니다.</span>
-          </div>
-          <div id="user-list"></div>
         </div>
       </div>
       <div class="col-12">
@@ -531,13 +551,13 @@
   <div class="modal-body">
     <input type="hidden" id="d-id">
     <div class="row g-3">
-      <div class="col-md-6"><label class="form-label">고객사 *</label><select class="form-select" id="d-cust"></select></div>
-      <div class="col-md-6"><label class="form-label">제품 *</label><select class="form-select" id="d-product" onchange="dealProdChange()"></select></div>
+      <div class="col-md-6"><label class="form-label">고객사 *</label><input type="text" class="form-control" id="d-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
+      <div class="col-md-6"><label class="form-label">제품 *</label><input type="text" class="form-control" id="d-product" list="dl-prod" placeholder="제품명 입력 · 선택" autocomplete="off" oninput="dealProdChange()"></div>
       <div class="col-md-4"><label class="form-label">수량</label><input type="number" class="form-control" id="d-qty" value="1" min="1" oninput="dealCalc()"></div>
       <div class="col-md-8"><label class="form-label">금액(원) *</label><input type="text" class="form-control" id="d-amount" inputmode="numeric" oninput="commaInput(this)"></div>
       <div class="col-md-6"><label class="form-label">단계</label><select class="form-select" id="d-stage" onchange="dealStageChange()"></select></div>
       <div class="col-md-6"><label class="form-label">수주 확률(%)</label><input type="number" class="form-control" id="d-prob" min="0" max="100"></div>
-      <div class="col-md-6"><label class="form-label">담당자</label><select class="form-select" id="d-rep"></select></div>
+      <div class="col-md-6"><label class="form-label">담당자</label><input type="text" class="form-control" id="d-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
       <div class="col-md-6"><label class="form-label">예상 수주일</label><input type="date" class="form-control" id="d-expected"></div>
       <div class="col-md-6"><label class="form-label">다음 액션</label><input type="text" class="form-control" id="d-next" placeholder="예: 원장 미팅 · 데모 일정 확정"></div>
       <div class="col-md-6"><label class="form-label">다음 액션 예정일</label><input type="date" class="form-control" id="d-next-date"></div>
@@ -566,7 +586,7 @@
         <option>A</option><option selected>B</option><option>C</option><option>D</option></select></div>
       <div class="col-md-4"><label class="form-label">시/도</label><input type="text" class="form-control" id="c-sido" placeholder="서울"></div>
       <div class="col-md-4"><label class="form-label">시/군/구</label><input type="text" class="form-control" id="c-gugun" placeholder="강남구"></div>
-      <div class="col-md-4"><label class="form-label">담당영업</label><select class="form-select" id="c-rep-in"></select></div>
+      <div class="col-md-4"><label class="form-label">담당영업</label><input type="text" class="form-control" id="c-rep-in" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
       <div class="col-md-4"><label class="form-label">전화</label><input type="text" class="form-control" id="c-phone"></div>
       <div class="col-md-8"><label class="form-label">주소</label><input type="text" class="form-control" id="c-addr"></div>
       <div class="col-12"><label class="form-label">태그 <span style="font-weight:400;color:#94a3b8">쉼표로 구분</span></label>
@@ -615,11 +635,11 @@
     <input type="hidden" id="l-id">
     <div class="row g-3">
       <div class="col-md-4"><label class="form-label">일자 *</label><input type="date" class="form-control" id="l-date"></div>
-      <div class="col-md-8"><label class="form-label">고객사 *</label><select class="form-select" id="l-cust"></select></div>
+      <div class="col-md-8"><label class="form-label">고객사 *</label><input type="text" class="form-control" id="l-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
       <div class="col-md-4"><label class="form-label">유형</label><select class="form-select" id="l-type">
         <option>방문</option><option>전화</option><option>이메일</option><option>데모/시연</option><option>시술참관</option><option>학회</option><option>기타</option></select></div>
-      <div class="col-md-4"><label class="form-label">관심제품</label><select class="form-select" id="l-interest"></select></div>
-      <div class="col-md-4"><label class="form-label">담당자</label><select class="form-select" id="l-rep"></select></div>
+      <div class="col-md-4"><label class="form-label">관심제품</label><input type="text" class="form-control" id="l-interest" list="dl-prod" placeholder="제품명 입력 · 선택" autocomplete="off"></div>
+      <div class="col-md-4"><label class="form-label">담당자</label><input type="text" class="form-control" id="l-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
       <div class="col-12"><label class="form-label">상담 내용 *</label><textarea class="form-control" id="l-content" rows="4"></textarea></div>
       <div class="col-md-8"><label class="form-label">다음 액션</label><input type="text" class="form-control" id="l-next"></div>
       <div class="col-md-4"><label class="form-label">예정일</label><input type="date" class="form-control" id="l-next-date"></div>
@@ -640,10 +660,10 @@
     <div class="row g-3">
       <div class="col-7"><label class="form-label">일자 *</label><input type="date" class="form-control" id="s-date"></div>
       <div class="col-5"><label class="form-label">시간</label><input type="time" class="form-control" id="s-time"></div>
-      <div class="col-12"><label class="form-label">고객사</label><select class="form-select" id="s-cust"></select></div>
+      <div class="col-12"><label class="form-label">고객사</label><input type="text" class="form-control" id="s-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
       <div class="col-6"><label class="form-label">유형</label><select class="form-select" id="s-type">
         <option>방문</option><option>전화</option><option>데모/시연</option><option>설치</option><option>A/S</option><option>학회</option><option>내부</option></select></div>
-      <div class="col-6"><label class="form-label">담당자</label><select class="form-select" id="s-rep"></select></div>
+      <div class="col-6"><label class="form-label">담당자</label><input type="text" class="form-control" id="s-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
       <div class="col-12"><label class="form-label">내용 *</label><input type="text" class="form-control" id="s-title" placeholder="예: 원장 미팅 — ESWL 데모 협의"></div>
       <div class="col-12">
         <div class="form-check"><input class="form-check-input" type="checkbox" id="s-done" onchange="document.getElementById('s-result-wrap').style.display=this.checked?'block':'none'">
@@ -702,10 +722,10 @@
   <div class="modal-body">
     <input type="hidden" id="q-id">
     <div class="row g-3 mb-3">
-      <div class="col-md-5"><label class="form-label">고객사 *</label><select class="form-select" id="q-cust"></select></div>
+      <div class="col-md-5"><label class="form-label">고객사 *</label><input type="text" class="form-control" id="q-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
       <div class="col-md-3"><label class="form-label">견적일</label><input type="date" class="form-control" id="q-date"></div>
       <div class="col-md-2"><label class="form-label">유효기한(일)</label><input type="number" class="form-control" id="q-valid" value="30"></div>
-      <div class="col-md-2"><label class="form-label">담당자</label><select class="form-select" id="q-rep"></select></div>
+      <div class="col-md-2"><label class="form-label">담당자</label><input type="text" class="form-control" id="q-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
     </div>
     <div class="wt-st">품목</div>
     <div class="table-responsive">
@@ -747,14 +767,14 @@
   <div class="modal-body">
     <input type="hidden" id="e-id">
     <div class="row g-3">
-      <div class="col-md-7"><label class="form-label">고객사 *</label><select class="form-select" id="e-cust"></select></div>
-      <div class="col-md-5"><label class="form-label">모델 *</label><select class="form-select" id="e-model" onchange="equipModelChange()"></select></div>
+      <div class="col-md-7"><label class="form-label">고객사 *</label><input type="text" class="form-control" id="e-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
+      <div class="col-md-5"><label class="form-label">모델 *</label><input type="text" class="form-control" id="e-model" list="dl-prod" placeholder="제품명 입력 · 선택" autocomplete="off" oninput="equipModelChange()"></div>
       <div class="col-md-4"><label class="form-label">시리얼번호</label><input type="text" class="form-control" id="e-serial"></div>
       <div class="col-md-4"><label class="form-label">설치일</label><input type="date" class="form-control" id="e-install" onchange="calcWarranty()"></div>
       <div class="col-md-4"><label class="form-label">보증만료</label><input type="date" class="form-control" id="e-warranty-end"></div>
       <div class="col-md-4"><label class="form-label">상태</label><select class="form-select" id="e-status-in">
         <option>정상</option><option>수리중</option><option>교체예정</option><option>반납</option></select></div>
-      <div class="col-md-4"><label class="form-label">담당자</label><select class="form-select" id="e-rep"></select></div>
+      <div class="col-md-4"><label class="form-label">담당자</label><input type="text" class="form-control" id="e-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
       <div class="col-md-4"><label class="form-label">계약 형태</label><select class="form-select" id="e-contract">
         <option>구매</option><option>렌탈</option><option>리스</option><option>데모기</option></select></div>
       <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="e-memo" rows="2"></textarea></div>
@@ -766,7 +786,7 @@
       <div class="col-md-2"><select class="form-select form-select-sm" id="as-type">
         <option>정기점검</option><option>수리</option><option>부품교체</option><option>교육</option><option>기타</option></select></div>
       <div class="col-md-4"><input type="text" class="form-control form-control-sm" id="as-content" placeholder="내용"></div>
-      <div class="col-md-2"><input type="text" class="form-control form-control-sm" id="as-engineer" placeholder="담당 엔지니어"></div>
+      <div class="col-md-2"><input type="text" class="form-control form-control-sm" id="as-engineer" list="dl-rep" placeholder="담당 엔지니어" autocomplete="off"></div>
       <div class="col-md-1"><button class="btn btn-primary btn-sm w-100" onclick="addAS()">추가</button></div>
     </div>
     <div id="as-list"></div>
@@ -815,6 +835,10 @@
 
 <button id="pdf-fab" onclick="window.print()"><i class="bi bi-printer me-1"></i>PDF</button>
 
+<datalist id="dl-cust"></datalist>
+<datalist id="dl-prod"></datalist>
+<datalist id="dl-rep"></datalist>
+
 <div class="saving-toast" id="toast"><i class="bi bi-check-circle-fill" style="color:#34d399"></i><span id="toast-msg">저장되었습니다</span></div>
 
 <!-- 새 버전 알림 바 -->
@@ -826,6 +850,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260730a"></script>
+<script src="app.js?v=20260730b"></script>
 </body>
 </html>

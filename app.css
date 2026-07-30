@@ -175,10 +175,13 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .deal-card{background:#fff;border-radius:10px;padding:9px 11px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer;transition:all .18s;border:1px solid var(--border)}
 .deal-card:hover{box-shadow:0 6px 16px rgba(0,0,0,.1);transform:translateY(-1px)}
 .deal-card.dragging{opacity:.4;transform:rotate(2deg)}
-.deal-card .dc-name{font-size:12.5px;font-weight:700;color:#182230;line-height:1.25}
+.deal-card .dc-top{display:flex;align-items:flex-start;gap:6px}
+.deal-card .dc-name{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:#182230;line-height:1.25}
 .deal-card .dc-prod{font-size:11px;color:var(--text-2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.deal-card .dc-amt{font-size:12.5px;font-weight:800;color:var(--blue);margin-top:4px;font-variant-numeric:tabular-nums}
-.deal-card .dc-meta{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:10px;color:#94a3b8}
+/* 금액과 담당·확률을 한 줄에 좌우 배치 — 하단 별도 행 제거로 카드가 짧아짐 */
+.deal-card .dc-foot{display:flex;align-items:baseline;gap:8px;margin-top:5px}
+.deal-card .dc-amt{flex:1;min-width:0;font-size:12.5px;font-weight:800;color:var(--blue);font-variant-numeric:tabular-nums}
+.deal-card .dc-meta{font-size:10px;color:#94a3b8;white-space:nowrap;text-align:right}
 .dc-flag{font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 5px}
 .dc-flag.od{background:#fef2f2;color:#dc2626}
 .dc-flag.td{background:#fff7ed;color:#ea580c}
@@ -281,6 +284,27 @@ body.locked>.main,body.locked>.sidebar,body.locked>#m-bottomnav,body.locked>#pdf
 #sidebar-tools .sb-tool i{font-size:15px;width:18px;text-align:center;flex-shrink:0;color:#475569}
 #sidebar-tools .sb-tool .sb-lb{flex:1}
 #sidebar-tools .sb-tool:hover{background:var(--sidebar-hover);color:#1c2534}
+
+/* ── 알림 벨 · 패널 ── */
+#sidebar-tools .sb-tool #bell-badge{margin-left:auto;background:#dc2626;color:#fff;font-size:9.5px;font-weight:800;
+  border-radius:9px;padding:1px 6px;line-height:14px;min-width:18px;text-align:center}
+#bell-panel{display:none;position:absolute;bottom:104px;left:8px;right:8px;background:#fff;border:1px solid var(--border);
+  border-radius:12px;box-shadow:0 -10px 30px rgba(16,42,67,.18);z-index:120;overflow:hidden}
+#bell-panel.on{display:block}
+#bell-panel .bp-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);
+  font-size:12.5px;font-weight:800;color:#182230;background:#fafbfc}
+#bell-panel .bp-head span{font-size:11px;font-weight:600;color:#94a3b8}
+#bell-panel .bp-head button{margin-left:auto;background:none;border:0;color:#94a3b8;cursor:pointer;font-size:11px;padding:0}
+#bell-panel .bp-head button:hover{color:#dc2626}
+#bell-panel .bp-body{max-height:46vh;overflow-y:auto}
+#bell-panel .bp-sec{font-size:10px;font-weight:800;letter-spacing:.06em;color:#94a3b8;padding:8px 12px 3px;text-transform:uppercase}
+#bell-panel .bp-item{display:flex;gap:8px;align-items:flex-start;padding:7px 12px;cursor:pointer;border-bottom:1px solid #f6f8fa}
+#bell-panel .bp-item:hover{background:#f0fafc}
+#bell-panel .bp-item i{font-size:13px;flex-shrink:0;margin-top:1px}
+#bell-panel .bp-t{font-size:12px;font-weight:700;color:#182230;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#bell-panel .bp-s{font-size:10.5px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#bell-panel .bp-empty{padding:26px 12px;text-align:center;font-size:12.5px;color:#94a3b8}
+.sidebar-footer{position:relative}
 
 /* ── 계정 카드 (원텍 sidebar-user 방식) ── */
 #sidebar-user{background:#fff;border:1px solid #e4e8ef;border-radius:8px;padding:8px 10px;margin:0 8px 8px}

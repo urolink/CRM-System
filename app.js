@@ -6,10 +6,9 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730a';
+const APP_VERSION = '20260730b';
 
 const STAGES = [
-  {name:'리드발굴',  prob:10,  color:'#94a3b8'},
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
   {name:'데모/시연', prob:45,  color:'#6366f1'},
   {name:'견적발송',  prob:60,  color:'#8b5cf6'},
@@ -119,6 +118,8 @@ function fixShape() {
   const b = blankDB();
   Object.keys(b).forEach(k => { if (DB[k] == null) DB[k] = b[k]; });
   if (!DB.meta) DB.meta = b.meta;
+  /* 단계 개편(리드발굴 폐지) 이전 데이터 이관 — 없는 단계면 칸반에서 사라지므로 */
+  (DB.deals || []).forEach(d => { if (d.stage === '상담중') { d.stage = '상담중'; d.prob = 25; } });
 }
 const isEmptyDB = () => Object.keys(TABLES).every(k => !(DB[k] || []).length);
 /* 샘플 데이터 존재 여부 — meta 플래그는 브라우저별이라, 시드된 실제 행으로 판별(서버 공유 시에도 정확) */
@@ -148,6 +149,7 @@ function save(silent) {
   refreshCounts();
   if (isRemote()) pushDiff(silent);
   else if (!silent) toast();
+  flushAutoAdded();
 }
 
 function syncing(on) {
@@ -305,7 +307,7 @@ function seed() {
     ['c3','UL-S300',12300000, '상담중',      dm(1,20), '이지현','원장 미팅 일정 확정',       dd(-2)],
     ['c4','UL-DX',  46000000, '데모/시연',   dm(0,28), '이지현','데모 장비 반출 신청',       dd(1)],
     ['c4','UL-F200',17800000, '계약완료',    dm(-3,12),'이지현','',                         ''],
-    ['c5','UL-SF7', 40500000, '리드발굴',    dm(2,15), '이지현','학회 부스 팔로업',          dd(8)],
+    ['c5','UL-SF7', 40500000, '상담중',    dm(2,15), '이지현','학회 부스 팔로업',          dd(8)],
     ['c6','UL-L900',312000000,'협의중',      dm(1,2),  '박준영','설치공사 견적 첨부',        dd(2)],
     ['c6','UL-CARE',6000000,  '계약완료',    dm(-1,5), '박준영','',                          ''],
     ['c7','UL-TP2', 92000000, '견적발송',    dm(1,25), '박준영','리스 조건 안내',            dd(6)],
@@ -459,6 +461,75 @@ function showPage(page, el) {
 function toggleSidebar() { $('sidebar').classList.toggle('open'); $('sidebarOverlay').classList.toggle('open'); }
 function closeSidebar() { $('sidebar').classList.remove('open'); $('sidebarOverlay').classList.remove('open'); }
 
+/* ══ 알림 (원텍 사이드바 벨) ══
+   오늘 일정 · 놓친 일정 · 지연된 다음 액션 · 보증만료 임박 · 장기 미접촉을 한곳에 모은다. */
+function alertItems() {
+  const out = [], td = today();
+  DB.schedules.filter(s => s.date === td && !s.done).forEach(s => out.push({
+    sec: '오늘 일정', ic: 'bi-calendar-event', c: '#0e7490',
+    t: (s.custId ? custName(s.custId) : '내부') + ' · ' + s.type,
+    sub: (s.time ? s.time + ' ' : '') + s.title, go: "showPage('schedule')", urgent: true }));
+  DB.schedules.filter(s => !s.done && s.date < td).forEach(s => out.push({
+    sec: '놓친 일정', ic: 'bi-exclamation-circle', c: '#dc2626',
+    t: (s.custId ? custName(s.custId) : '내부') + ' · ' + fmtDate(s.date).slice(5),
+    sub: s.title + ' — 결과 미입력', go: "showPage('schedule');schOverdue()", urgent: true }));
+  DB.deals.filter(d => OPEN_STAGES.includes(d.stage) && d.nextAction).forEach(d => {
+    const n = dDays(d.nextActionDate || d.expectedDate);
+    if (n == null || n > 0) return;
+    out.push({ sec: '다음 액션', ic: 'bi-flag', c: n < 0 ? '#dc2626' : '#ea580c',
+      t: custName(d.custId) + ' · ' + money(d.amount) + '원',
+      sub: d.nextAction + (n < 0 ? ' (' + (-n) + '일 지연)' : ' (오늘)'),
+      go: "openDrawer('" + d.id + "')", urgent: true });
+  });
+  DB.equipments.forEach(e => {
+    const n = dDays(e.warrantyEnd);
+    if (n != null && n >= 0 && n <= 90) out.push({ sec: '보증 만료 임박', ic: 'bi-shield-exclamation', c: '#ea580c',
+      t: custName(e.custId) + ' · ' + e.model, sub: 'D-' + n + ' (' + fmtDate(e.warrantyEnd) + ')', go: "showPage('equipments')" });
+    if (e.status === '수리중') out.push({ sec: 'A/S 진행', ic: 'bi-tools', c: '#dc2626',
+      t: custName(e.custId) + ' · ' + e.model, sub: '수리중 — 진행 확인 필요', go: "showPage('equipments')" });
+  });
+  DB.customers.forEach(c => {
+    if (c.grade !== 'A' && c.grade !== 'B') return;
+    const last = DB.logs.filter(l => l.custId === c.id).map(l => l.date).sort().pop();
+    const gap = last ? -dDays(last) : null;
+    if (gap == null || gap > 60) out.push({ sec: '장기 미접촉', ic: 'bi-person-dash', c: '#7c3aed',
+      t: c.name + ' (' + c.grade + '등급)', sub: last ? gap + '일간 접촉 없음' : '접촉 이력 없음',
+      go: "openCustDetail('" + c.id + "')" });
+  });
+  return out;
+}
+function renderBell() {
+  if (!DB) return;
+  const items = alertItems();
+  const urgent = items.filter(x => x.urgent).length;
+  const badge = $('bell-badge');
+  if (badge) {
+    badge.textContent = urgent || items.length || '';
+    badge.style.display = (urgent || items.length) ? 'inline-block' : 'none';
+    badge.style.background = urgent ? '#dc2626' : '#94a3b8';
+  }
+  const body = $('bp-body'), cnt = $('bp-count');
+  if (!body) return;
+  if (cnt) cnt.textContent = items.length ? items.length + '건' + (urgent ? ' · 급함 ' + urgent : '') : '';
+  if (!items.length) { body.innerHTML = '<div class="bp-empty"><i class="bi bi-check2-circle" style="font-size:20px;color:#cbd5e1"></i><div class="mt-2">확인할 알림이 없습니다</div></div>'; return; }
+  const secs = [];
+  items.forEach(x => { if (!secs.includes(x.sec)) secs.push(x.sec); });
+  body.innerHTML = secs.map(sc => '<div class="bp-sec">' + esc(sc) + '</div>'
+    + items.filter(x => x.sec === sc).slice(0, 8).map(x =>
+      '<div class="bp-item" onclick="closeBell();' + x.go + '">'
+      + '<i class="bi ' + x.ic + '" style="color:' + x.c + '"></i>'
+      + '<div style="flex:1;min-width:0"><div class="bp-t">' + esc(x.t) + '</div>'
+      + '<div class="bp-s">' + esc(x.sub) + '</div></div></div>').join('')).join('');
+}
+function toggleBell() {
+  const p = $('bell-panel');
+  if (!p) return;
+  if (p.classList.contains('on')) { p.classList.remove('on'); return; }
+  renderBell();
+  p.classList.add('on');
+}
+function closeBell() { const p = $('bell-panel'); if (p) p.classList.remove('on'); }
+
 function refreshCounts() {
   if (!DB) return;   // 로그인 직후 서버 로드 이전(DB 미생성) 시점 방어
   const setCnt = (id, v) => { const el = $(id); if (el) el.textContent = v || ''; };
@@ -468,18 +539,71 @@ function refreshCounts() {
   setCnt('cnt-cust',   DB.customers.length);
   setCnt('cnt-equip',  DB.equipments.length);
   setCnt('cnt-prod',   DB.products.length);
+  renderBell();
   const u = DB.meta.updatedAt ? new Date(DB.meta.updatedAt) : null;
   $('footer-meta').textContent = u ? '최근 저장 ' + u.getFullYear() + '.' + pad(u.getMonth() + 1) + '.' + pad(u.getDate()) + ' ' + pad(u.getHours()) + ':' + pad(u.getMinutes()) : '';
 }
 
+/* ══ 콤보박스(직접 입력 + 자동완성) 지원 ══
+   고객사·제품·담당자는 목록에서 고르거나 새 이름을 그대로 타이핑할 수 있다.
+   저장 시 resolve*() 가 기존 항목을 찾고, 없으면 마스터에 자동 등록한다. */
+function fillDatalist(id, vals) {
+  const el = $(id);
+  if (!el) return;
+  el.innerHTML = vals.filter(Boolean).map(v => '<option value="' + esc(v) + '"></option>').join('');
+}
+function refreshDatalists() {
+  fillDatalist('dl-cust', DB.customers.map(c => c.name).sort((a, b) => String(a).localeCompare(String(b), 'ko')));
+  fillDatalist('dl-prod', DB.products.map(p => p.name));
+  fillDatalist('dl-rep', repNames());
+}
+const trimv = v => String(v == null ? '' : v).trim();
+const prodByName = nm => DB.products.find(p => p.name === nm) || DB.products.find(p => p.code === nm);
+const AUTO_ADDED = [];   /* 이번 저장에서 자동 등록된 항목 안내용 */
+
+function resolveCust(v) {
+  const nm = trimv(v);
+  if (!nm) return '';
+  const hit = DB.customers.find(x => x.name === nm) || DB.customers.find(x => x.id === nm);
+  if (hit) return hit.id;
+  const c = { id: uid(), name: nm, type: '의원', doctor: '', dept: '비뇨의학과', grade: 'C',
+    sido: '', gugun: '', rep: '', phone: '', addr: '', tags: [], memo: '', createdAt: today(), auto: true };
+  DB.customers.push(c);
+  AUTO_ADDED.push('고객사 ' + nm);
+  return c.id;
+}
+function autoProdCode() {
+  let i = DB.products.length + 1;
+  while (prodByCode('P' + String(i).padStart(3, '0'))) i++;
+  return 'P' + String(i).padStart(3, '0');
+}
+function resolveProd(v, catHint) {
+  const nm = trimv(v);
+  if (!nm) return '';
+  const hit = prodByName(nm);
+  if (hit) return hit.code;
+  const code = autoProdCode();
+  DB.products.push({ code, name: nm, cat: catHint || '장비', price: 0, unit: 'EA', warranty: 12, memo: '자동 등록', auto: true });
+  AUTO_ADDED.push('제품 ' + nm);
+  return code;
+}
+function resolveRep(v) {
+  const nm = trimv(v);
+  if (!nm) return '';
+  if (!DB.reps.some(r => r.name === nm)) { DB.reps.push({ name: nm, role: '', auto: true }); AUTO_ADDED.push('담당자 ' + nm); }
+  return nm;
+}
+/* 저장 후 자동 등록 안내 */
+function flushAutoAdded() {
+  if (!AUTO_ADDED.length) return;
+  const msg = AUTO_ADDED.join(' · ') + ' 자동 등록됨';
+  AUTO_ADDED.length = 0;
+  refreshDatalists();
+  setTimeout(() => toast(msg), 700);
+}
+
 function refreshSelects() {
-  const custOpts = DB.customers.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map(c => ({ v: c.id, l: c.name }));
-  const prodOpts = DB.products.map(p => ({ v: p.code, l: p.name }));
-  ['d-cust','l-cust','s-cust','q-cust','e-cust'].forEach(id => fillSelect($(id), custOpts, { blank: id === 's-cust' ? '(고객사 없음)' : '선택' }));
-  fillSelect($('d-product'), prodOpts, { blank: '선택' });
-  fillSelect($('l-interest'), prodOpts, { blank: '(없음)' });
-  fillSelect($('e-model'), prodOpts.filter(p => { const x = prodByCode(p.v); return x && x.cat === '장비'; }), { blank: '선택' });
-  ['d-rep','l-rep','s-rep','q-rep','c-rep-in','e-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '(미지정)' }));
+  refreshDatalists();
   /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
   ['pipe-rep','c-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
   fillSelect($('d-stage'), STAGES.map(s => s.name));
@@ -939,10 +1063,10 @@ function dealCard(d) {
   const n = dDays(d.nextActionDate || d.expectedDate);
   const flag = n == null ? '' : n < 0 ? `<span class="dc-flag od">${-n}일 지연</span>` : n === 0 ? `<span class="dc-flag td">오늘</span>` : '';
   return `<div class="deal-card" draggable="true" ondragstart="dragStart(event,'${d.id}')" ondragend="dragEnd(event)" onclick="openDrawer('${d.id}')">
-    <div class="dc-name">${esc(custName(d.custId))}</div>
+    <div class="dc-top"><div class="dc-name">${esc(custName(d.custId))}</div>${flag}</div>
     <div class="dc-prod">${esc(d.product)}</div>
-    <div class="dc-amt">${money(d.amount)}원</div>
-    <div class="dc-meta"><span>${esc(d.rep || '미지정')} · ${num(d.prob)}%</span>${flag || `<span>${fmtDate(d.expectedDate)}</span>`}</div>
+    <div class="dc-foot"><span class="dc-amt">${money(d.amount)}원</span>
+      <span class="dc-meta">${esc(d.rep || '미지정')} · ${num(d.prob)}%${flag ? '' : ' · ' + fmtDate(d.expectedDate)}</span></div>
   </div>`;
 }
 let DRAG_ID = null;
@@ -1045,8 +1169,8 @@ function openDealModal(id, custId) {
   $('deal-modal-title').textContent = d ? '딜 수정' : '딜 추가';
   $('d-del-btn').style.display = d ? 'inline-block' : 'none';
   $('d-id').value = d ? d.id : '';
-  $('d-cust').value = d ? d.custId : (custId || '');
-  $('d-product').value = d ? (d.productCode || '') : '';
+  $('d-cust').value = d ? custName(d.custId) : (custId ? custName(custId) : '');
+  $('d-product').value = d ? (d.product || '') : '';
   $('d-qty').value = d ? (d.qty || 1) : 1;
   $('d-amount').value = d ? comma(d.amount) : '';
   $('d-stage').value = d ? d.stage : '상담중';
@@ -1060,21 +1184,23 @@ function openDealModal(id, custId) {
 }
 function dealProdChange() { dealCalc(); }
 function dealCalc() {
-  const p = prodByCode($('d-product').value);
+  const p = prodByName(trimv($('d-product').value));
   if (!p) return;
   $('d-amount').value = comma(num(p.price) * Math.max(1, num($('d-qty').value)));
 }
 function dealStageChange() { $('d-prob').value = stageOf($('d-stage').value).prob; }
 function saveDeal() {
-  const custId = $('d-cust').value, code = $('d-product').value, amt = num($('d-amount').value);
-  if (!custId) return alert('고객사를 선택해주세요.');
-  if (!code) return alert('제품을 선택해주세요.');
+  if (!trimv($('d-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
+  if (!trimv($('d-product').value)) return alert('제품을 입력하거나 선택해주세요.');
+  const amt = num($('d-amount').value);
   if (!amt) return alert('금액을 입력해주세요.');
+  const custId = resolveCust($('d-cust').value);
+  const code = resolveProd($('d-product').value);
   const p = prodByCode(code);
   const id = $('d-id').value;
   const row = {
     custId, productCode: code, product: p ? p.name : code, qty: num($('d-qty').value) || 1, amount: amt,
-    stage: $('d-stage').value, prob: num($('d-prob').value), rep: $('d-rep').value,
+    stage: $('d-stage').value, prob: num($('d-prob').value), rep: resolveRep($('d-rep').value),
     expectedDate: $('d-expected').value, nextAction: $('d-next').value.trim(),
     nextActionDate: $('d-next-date').value, memo: $('d-memo').value.trim()
   };
@@ -1120,9 +1246,9 @@ function openLogModal(id, custId) {
   $('l-del-btn').style.display = l ? 'inline-block' : 'none';
   $('l-id').value = l ? l.id : '';
   $('l-date').value = l ? l.date : today();
-  $('l-cust').value = l ? l.custId : (custId || '');
+  $('l-cust').value = l ? custName(l.custId) : (custId ? custName(custId) : '');
   $('l-type').value = l ? l.type : '방문';
-  $('l-interest').value = l ? (DB.products.find(p => p.name === l.interest) || {}).code || '' : '';
+  $('l-interest').value = l ? (l.interest || '') : '';
   $('l-rep').value = l ? (l.rep || '') : '';
   $('l-content').value = l ? l.content : '';
   $('l-next').value = l ? (l.nextAction || '') : '';
@@ -1130,11 +1256,11 @@ function openLogModal(id, custId) {
   new bootstrap.Modal($('logModal')).show();
 }
 function saveLog() {
-  if (!$('l-cust').value) return alert('고객사를 선택해주세요.');
+  if (!trimv($('l-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!$('l-content').value.trim()) return alert('상담 내용을 입력해주세요.');
-  const p = prodByCode($('l-interest').value);
-  const row = { custId: $('l-cust').value, date: $('l-date').value || today(), type: $('l-type').value,
-    interest: p ? p.name : '', rep: $('l-rep').value, content: $('l-content').value.trim(),
+  const p = prodByCode(resolveProd($('l-interest').value));
+  const row = { custId: resolveCust($('l-cust').value), date: $('l-date').value || today(), type: $('l-type').value,
+    interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value };
   const id = $('l-id').value;
   if (id) Object.assign(DB.logs.find(x => x.id === id), row);
@@ -1437,7 +1563,7 @@ function openSchModal(id, preDate) {
   $('s-id').value = s ? s.id : '';
   $('s-date').value = s ? s.date : (preDate || today());
   $('s-time').value = s ? (s.time || '') : '';
-  $('s-cust').value = s ? (s.custId || '') : '';
+  $('s-cust').value = s ? (s.custId ? custName(s.custId) : '') : '';
   $('s-type').value = s ? s.type : '방문';
   $('s-rep').value = s ? (s.rep || '') : '';
   $('s-title').value = s ? s.title : '';
@@ -1448,8 +1574,8 @@ function openSchModal(id, preDate) {
 }
 function saveSch() {
   if (!$('s-title').value.trim()) return alert('내용을 입력해주세요.');
-  const row = { date: $('s-date').value || today(), time: $('s-time').value, custId: $('s-cust').value,
-    type: $('s-type').value, rep: $('s-rep').value, title: $('s-title').value.trim(),
+  const row = { date: $('s-date').value || today(), time: $('s-time').value, custId: resolveCust($('s-cust').value),
+    type: $('s-type').value, rep: resolveRep($('s-rep').value), title: $('s-title').value.trim(),
     done: $('s-done').checked, result: $('s-result').value.trim() };
   const id = $('s-id').value;
   if (id) Object.assign(DB.schedules.find(x => x.id === id), row);
@@ -1518,7 +1644,7 @@ function openQuoteModal(id) {
   $('quote-modal-title').textContent = x ? '견적서 수정 · ' + x.no : '견적서 작성';
   $('q-del-btn').style.display = x ? 'inline-block' : 'none';
   $('q-id').value = x ? x.id : '';
-  $('q-cust').value = x ? x.custId : '';
+  $('q-cust').value = x ? custName(x.custId) : '';
   $('q-date').value = x ? x.date : today();
   $('q-valid').value = x ? num(x.validDays || 30) : 30;
   $('q-rep').value = x ? (x.rep || '') : '';
@@ -1533,8 +1659,8 @@ function addQuoteItem(it) {
   it = it || { code: '', qty: 1, price: 0, disc: 0 };
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td><select class="form-select form-select-sm qi-code" onchange="qiProd(this)">
-      <option value="">선택</option>${DB.products.map(p => `<option value="${esc(p.code)}" ${p.code === it.code ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>
+    <td><input type="text" class="form-control form-control-sm qi-name" list="dl-prod" autocomplete="off"
+      placeholder="제품명 입력 · 선택" value="${esc(it.name || (prodByCode(it.code) || {}).name || '')}" oninput="qiProd(this)"></td>
     <td><input type="number" class="form-control form-control-sm qi-qty" min="1" value="${num(it.qty) || 1}" oninput="quoteRecalc()"></td>
     <td><input type="text" class="form-control form-control-sm qi-price" inputmode="numeric" value="${comma(it.price)}" oninput="commaInput(this);quoteRecalc()"></td>
     <td><input type="number" class="form-control form-control-sm qi-disc" min="0" max="100" value="${num(it.disc)}" oninput="quoteRecalc()"></td>
@@ -1543,19 +1669,19 @@ function addQuoteItem(it) {
   $('q-items').appendChild(tr);
   quoteRecalc();
 }
-function qiProd(sel) {
-  const p = prodByCode(sel.value);
-  const tr = sel.closest('tr');
+function qiProd(el) {
+  const p = prodByName(trimv(el.value));
+  const tr = el.closest('tr');
   if (p) tr.querySelector('.qi-price').value = comma(p.price);
   quoteRecalc();
 }
 function readQuoteItems() {
   return [...$('q-items').querySelectorAll('tr')].map(tr => {
-    const code = tr.querySelector('.qi-code').value;
-    const p = prodByCode(code);
-    return { code, name: p ? p.name : '', qty: num(tr.querySelector('.qi-qty').value) || 1,
+    const nm = trimv(tr.querySelector('.qi-name').value);
+    const p = prodByName(nm);
+    return { code: p ? p.code : '', name: nm, qty: num(tr.querySelector('.qi-qty').value) || 1,
       price: num(tr.querySelector('.qi-price').value), disc: num(tr.querySelector('.qi-disc').value) };
-  }).filter(it => it.code);
+  }).filter(it => it.name);
 }
 function quoteRecalc() {
   [...$('q-items').querySelectorAll('tr')].forEach(tr => {
@@ -1577,10 +1703,11 @@ function nextQuoteNo() {
 }
 function saveQuote(doPrint) {
   const items = readQuoteItems();
-  if (!$('q-cust').value) return alert('고객사를 선택해주세요.');
+  if (!trimv($('q-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!items.length) return alert('품목을 1개 이상 추가해주세요.');
-  const row = { custId: $('q-cust').value, date: $('q-date').value || today(), validDays: num($('q-valid').value) || 30,
-    rep: $('q-rep').value, items, memo: $('q-memo').value.trim(), status: $('q-status-in').value };
+  items.forEach(it => { if (!it.code) it.code = resolveProd(it.name); });
+  const row = { custId: resolveCust($('q-cust').value), date: $('q-date').value || today(), validDays: num($('q-valid').value) || 30,
+    rep: resolveRep($('q-rep').value), items, memo: $('q-memo').value.trim(), status: $('q-status-in').value };
   const id = $('q-id').value;
   let qid = id;
   if (id) Object.assign(DB.quotes.find(x => x.id === id), row);
@@ -1596,57 +1723,127 @@ function deleteQuote() {
   DB.quotes = DB.quotes.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('quoteModal')).hide(); renderQuotes();
 }
-function printQuote(id) {
-  const x = DB.quotes.find(v => v.id === id); if (!x) return;
+/* 금액 한글 표기 (견적서 상용) */
+function hangulMoney(v) {
+  let x = Math.round(num(v));
+  if (!x) return '영';
+  const D = ['','일','이','삼','사','오','육','칠','팔','구'];
+  const S = ['','십','백','천'];
+  const B = ['','만','억','조'];
+  let out = '', bi = 0;
+  while (x > 0) {
+    let grp = x % 10000; x = Math.floor(x / 10000);
+    if (grp) {
+      let g = '', si = 0;
+      while (grp > 0) { const d = grp % 10; if (d) g = D[d] + S[si] + g; grp = Math.floor(grp / 10); si++; }
+      out = g + B[bi] + out;
+    }
+    bi++;
+  }
+  return out;
+}
+function quoteHTML(x) {
   const c = quoteCalc(x.items), cu = custById(x.custId) || {};
   const until = (() => { const d = parseD(x.date) || new Date(); d.setDate(d.getDate() + num(x.validDays || 30)); return ymd(d); })();
-  $('quote-print').innerHTML = `<div class="qp-wrap">
-    <div class="qp-title">견 적 서</div>
-    <div style="text-align:center;font-size:11.5px;color:#475569">견적번호 ${esc(x.no)} · 견적일 ${fmtDate(x.date)} · 유효기한 ${fmtDate(until)}</div>
-    <div class="qp-parties">
-      <table><tr><td style="width:60px;background:#f8fafc;font-weight:700">수 신</td><td>${esc(custName(x.custId))}</td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">담 당</td><td>${esc(cu.doctor || '')} ${esc(cu.dept || '')}</td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">연 락</td><td>${esc(cu.phone || '')}</td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">주 소</td><td>${esc(cu.addr || '')}</td></tr></table>
-      <table><tr><td style="width:60px;background:#f8fafc;font-weight:700">공급자</td><td><b>주식회사 유로링크</b></td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">담 당</td><td>${esc(x.rep || '')}</td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">연 락</td><td>02-000-0000</td></tr>
-        <tr><td style="background:#f8fafc;font-weight:700">비 고</td><td>부가세 별도 표기</td></tr></table>
-    </div>
-    <div style="font-size:15px;font-weight:800;margin:10px 0 2px">합계 금액: ${won(c.total)} <span style="font-size:11px;font-weight:500;color:#64748b">(VAT 포함)</span></div>
-    <table class="qp-items">
-      <thead><tr><th style="width:36px">No</th><th>품목</th><th style="width:52px">수량</th><th style="width:96px">단가</th><th style="width:52px">할인</th><th style="width:106px">금액</th></tr></thead>
-      <tbody>${x.items.map((it, i) => `<tr>
-        <td style="text-align:center">${i + 1}</td><td>${esc(it.name || it.code)}</td>
-        <td style="text-align:center">${comma(it.qty)}</td><td style="text-align:right">${comma(it.price)}</td>
-        <td style="text-align:center">${num(it.disc)}%</td>
-        <td style="text-align:right">${comma(Math.round(num(it.qty) * num(it.price) * (1 - num(it.disc) / 100)))}</td></tr>`).join('')}
-        <tr><td colspan="5" style="text-align:right;font-weight:700">공급가액</td><td style="text-align:right">${comma(c.sub)}</td></tr>
-        <tr><td colspan="5" style="text-align:right;font-weight:700">부가세(10%)</td><td style="text-align:right">${comma(c.vat)}</td></tr>
-        <tr style="background:#f1f5f9"><td colspan="5" style="text-align:right;font-weight:800">합계</td><td style="text-align:right;font-weight:800">${comma(c.total)}</td></tr>
-      </tbody></table>
-    ${x.memo ? `<div style="margin-top:14px;font-size:11.5px"><b>특기사항</b><div style="white-space:pre-wrap;margin-top:4px;color:#334155">${esc(x.memo)}</div></div>` : ''}
-    <div style="margin-top:26px;text-align:right;font-size:12px">주식회사 유로링크 &nbsp;&nbsp; (인)</div>
-  </div>`;
+  const row = (k, v) => '<tr><th>' + esc(k) + '</th><td>' + esc(v || '') + '</td></tr>';
+  return '<div class="qp">'
+    + '<div class="qp-brand"><div class="qp-mark">U</div><div>'
+      + '<div class="qp-co">주식회사 유로링크</div>'
+      + '<div class="qp-co-sub">UroLink Co., Ltd. · 비뇨의학과 의료기기</div></div>'
+      + '<div class="qp-meta"><div>견적번호 <b>' + esc(x.no) + '</b></div>'
+      + '<div>견적일 ' + fmtDate(x.date) + '</div>'
+      + '<div>유효기한 ' + fmtDate(until) + '</div></div></div>'
+    + '<div class="qp-title">견 적 서</div>'
+    + '<div class="qp-parties">'
+      + '<table><caption>수신</caption>'
+        + row('상 호', custName(x.custId)) + row('담 당', ((cu.doctor || '') + ' ' + (cu.dept || '')).trim())
+        + row('연 락', cu.phone) + row('주 소', cu.addr) + '</table>'
+      + '<table><caption>공급자</caption>'
+        + row('상 호', '주식회사 유로링크') + row('담 당', x.rep)
+        + row('연 락', '02-000-0000') + row('비 고', '부가세 별도 표기') + '</table>'
+    + '</div>'
+    + '<div class="qp-sum"><span class="l">합계 금액</span>'
+      + '<b>' + comma(c.total) + '<em>원</em></b>'
+      + '<span class="h">일금 ' + hangulMoney(c.total) + '원정 (VAT 포함)</span></div>'
+    + '<table class="qp-items"><thead><tr>'
+      + '<th style="width:38px">No</th><th>품 목</th><th style="width:52px">수량</th>'
+      + '<th style="width:100px">단 가</th><th style="width:52px">할인</th><th style="width:112px">금 액</th></tr></thead><tbody>'
+    + x.items.map((it, i) => '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(it.name || it.code) + '</td>'
+        + '<td class="c">' + comma(it.qty) + '</td><td class="r">' + comma(it.price) + '</td>'
+        + '<td class="c">' + num(it.disc) + '%</td>'
+        + '<td class="r">' + comma(Math.round(num(it.qty) * num(it.price) * (1 - num(it.disc) / 100))) + '</td></tr>').join('')
+    + (x.items.length < 5 ? Array.from({ length: 5 - x.items.length }, () => '<tr class="pad"><td class="c">&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>').join('') : '')
+    + '</tbody><tfoot>'
+      + '<tr><td colspan="5" class="r lbl">공급가액</td><td class="r">' + comma(c.sub) + '</td></tr>'
+      + (c.disc ? '<tr><td colspan="5" class="r lbl">할인 합계</td><td class="r">-' + comma(c.disc) + '</td></tr>' : '')
+      + '<tr><td colspan="5" class="r lbl">부가세 (10%)</td><td class="r">' + comma(c.vat) + '</td></tr>'
+      + '<tr class="tot"><td colspan="5" class="r">합 계</td><td class="r">' + comma(c.total) + '</td></tr>'
+    + '</tfoot></table>'
+    + (x.memo ? '<div class="qp-memo"><div class="t">특기사항</div><div class="b">' + esc(x.memo) + '</div></div>' : '')
+    + '<div class="qp-sign"><div>위와 같이 견적서를 제출합니다.</div>'
+      + '<div class="s">주식회사 유로링크 <span class="stamp">(인)</span></div></div>'
+    + '<div class="qp-foot">주식회사 유로링크 · UroLink Co., Ltd. &nbsp;|&nbsp; 본 견적서는 발행일로부터 '
+      + num(x.validDays || 30) + '일간 유효합니다.</div>'
+    + '</div>';
+}
+const QUOTE_CSS = `
+  *{box-sizing:border-box}
+  body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff;color:#182230;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:14mm}
+  .qp{padding:0;font-size:12px;letter-spacing:-.01em}
+  .qp-brand{display:flex;align-items:center;gap:11px;padding-bottom:12px;border-bottom:2px solid #16324f}
+  .qp-mark{width:34px;height:34px;border-radius:9px;background:#0e7490;color:#fff;font-weight:800;font-size:19px;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .qp-co{font-size:15px;font-weight:800}
+  .qp-co-sub{font-size:10px;color:#94a3b8;margin-top:1px;letter-spacing:.02em}
+  .qp-meta{margin-left:auto;text-align:right;font-size:10.5px;color:#64748b;line-height:1.6}
+  .qp-meta b{color:#182230}
+  .qp-title{font-size:27px;font-weight:800;letter-spacing:.34em;text-align:center;margin:26px 0 22px;color:#16324f}
+  .qp-parties{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+  .qp-parties table{width:100%;border-collapse:collapse}
+  .qp-parties caption{caption-side:top;text-align:left;font-size:10px;font-weight:800;letter-spacing:.1em;
+    color:#0e7490;padding-bottom:4px;text-transform:uppercase}
+  .qp-parties th{width:54px;background:#f5f8fa;border:1px solid #dbe3ec;padding:6px 8px;font-size:10.5px;
+    font-weight:700;color:#475569;text-align:center;white-space:nowrap}
+  .qp-parties td{border:1px solid #dbe3ec;padding:6px 9px;font-size:11.5px}
+  .qp-sum{display:flex;align-items:baseline;gap:12px;background:#f0fbfd;border:1px solid #a5d8e4;
+    border-left:4px solid #0e7490;border-radius:6px;padding:13px 18px;margin-bottom:16px}
+  .qp-sum .l{font-size:11.5px;font-weight:800;color:#0e7490;letter-spacing:.04em}
+  .qp-sum b{font-size:25px;font-weight:800;color:#16324f;font-variant-numeric:tabular-nums}
+  .qp-sum b em{font-size:14px;font-weight:700;font-style:normal;margin-left:2px}
+  .qp-sum .h{margin-left:auto;font-size:11px;color:#64748b}
+  .qp-items{width:100%;border-collapse:collapse}
+  .qp-items th{background:#16324f;color:#fff;border:1px solid #16324f;padding:8px 8px;font-size:11px;font-weight:700}
+  .qp-items td{border:1px solid #dbe3ec;padding:7px 9px;font-size:11.5px;font-variant-numeric:tabular-nums}
+  .qp-items tbody tr:nth-child(even) td{background:#fafbfc}
+  .qp-items tr.pad td{height:26px}
+  .qp-items td.c{text-align:center}
+  .qp-items td.r{text-align:right}
+  .qp-items tfoot td{background:#f5f8fa;font-weight:700}
+  .qp-items tfoot td.lbl{color:#475569;font-weight:600}
+  .qp-items tfoot tr.tot td{background:#e6f4f8;color:#16324f;font-size:13px;font-weight:800}
+  .qp-memo{margin-top:16px;border:1px solid #dbe3ec;border-radius:6px;overflow:hidden}
+  .qp-memo .t{background:#f5f8fa;border-bottom:1px solid #dbe3ec;padding:6px 10px;font-size:10.5px;font-weight:800;color:#475569}
+  .qp-memo .b{padding:9px 11px;font-size:11.5px;color:#334155;white-space:pre-wrap;line-height:1.6}
+  .qp-sign{margin-top:30px;text-align:right;font-size:11.5px;color:#475569}
+  .qp-sign .s{margin-top:8px;font-size:14px;font-weight:800;color:#182230}
+  .qp-sign .stamp{display:inline-block;margin-left:8px;width:44px;height:44px;line-height:42px;text-align:center;
+    border:1.5px dashed #cbd5e1;border-radius:50%;color:#cbd5e1;font-size:11px;font-weight:600;vertical-align:middle}
+  .qp-foot{margin-top:26px;padding-top:9px;border-top:1px solid #e4e8ef;font-size:10px;color:#94a3b8;text-align:center}
+`;
+function printQuote(id) {
+  const x = DB.quotes.find(v => v.id === id);
+  if (!x) return;
+  const html = quoteHTML(x);
+  $('quote-print').innerHTML = html;
   const win = window.open('', '_blank');
   if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
-  win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>견적서 ${esc(x.no)}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
-    <style>body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff}
-    @page{size:A4;margin:12mm}${document.querySelector('link[href="app.css"]') ? '' : ''}
-    .qp-wrap{padding:24px 28px;font-size:12.5px;color:#111}
-    .qp-title{font-size:26px;font-weight:800;letter-spacing:.3em;text-align:center;margin-bottom:6px}
-    .qp-parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:22px 0}
-    .qp-parties table{width:100%;border-collapse:collapse}
-    .qp-parties td{border:1px solid #cbd5e1;padding:5px 8px;font-size:11.5px}
-    .qp-items{width:100%;border-collapse:collapse;margin-top:8px}
-    .qp-items th{background:#f1f5f9;border:1px solid #94a3b8;padding:7px 8px;font-size:11.5px;font-weight:700}
-    .qp-items td{border:1px solid #cbd5e1;padding:6px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
-    </style></head><body>${$('quote-print').innerHTML}</body></html>`);
+  win.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>견적서 ' + esc(x.no) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">'
+    + '<style>' + QUOTE_CSS + '</style></head><body>' + html + '</body></html>');
   win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 400);
+  setTimeout(() => { win.focus(); win.print(); }, 500);
 }
-
 /* ───────────────────────── 10. 고객사 ───────────────────────── */
 let C_TAG = '';
 function renderCustomers() {
@@ -1715,7 +1912,7 @@ function saveCust() {
   if (!name) return alert('고객사명을 입력해주세요.');
   const row = { name, type: $('c-type').value, doctor: $('c-doctor').value.trim(), dept: $('c-dept').value.trim(),
     grade: $('c-grade-in').value, sido: $('c-sido').value.trim(), gugun: $('c-gugun').value.trim(),
-    rep: $('c-rep-in').value, phone: $('c-phone').value.trim(), addr: $('c-addr').value.trim(),
+    rep: resolveRep($('c-rep-in').value), phone: $('c-phone').value.trim(), addr: $('c-addr').value.trim(),
     tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim() };
   const id = $('c-id').value;
   if (id) Object.assign(custById(id), row);
@@ -1879,8 +2076,8 @@ function openEquipModal(id) {
   $('equip-modal-title').textContent = e ? '장비 수정' : '장비 등록';
   $('e-del-btn').style.display = e ? 'inline-block' : 'none';
   $('e-id').value = e ? e.id : '';
-  $('e-cust').value = e ? e.custId : '';
-  $('e-model').value = e ? (e.modelCode || '') : '';
+  $('e-cust').value = e ? custName(e.custId) : '';
+  $('e-model').value = e ? (e.model || '') : '';
   $('e-serial').value = e ? (e.serial || '') : '';
   $('e-install').value = e ? (e.installDate || '') : today();
   $('e-warranty-end').value = e ? (e.warrantyEnd || '') : '';
@@ -1894,7 +2091,7 @@ function openEquipModal(id) {
 }
 function equipModelChange() { calcWarranty(); }
 function calcWarranty() {
-  const p = prodByCode($('e-model').value), inst = $('e-install').value;
+  const p = prodByName(trimv($('e-model').value)), inst = $('e-install').value;
   if (p && inst && p.warranty) $('e-warranty-end').value = addMonths(inst, p.warranty);
 }
 let AS_TMP = [];
@@ -1917,12 +2114,13 @@ function addAS() {
 }
 function removeAS(i) { AS_TMP.splice(i, 1); renderASList(AS_TMP); }
 function saveEquip() {
-  if (!$('e-cust').value) return alert('고객사를 선택해주세요.');
-  if (!$('e-model').value) return alert('모델을 선택해주세요.');
-  const p = prodByCode($('e-model').value);
-  const row = { custId: $('e-cust').value, modelCode: $('e-model').value, model: p ? p.name : $('e-model').value,
+  if (!trimv($('e-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
+  if (!trimv($('e-model').value)) return alert('모델을 입력하거나 선택해주세요.');
+  const code = resolveProd($('e-model').value, '장비');
+  const p = prodByCode(code);
+  const row = { custId: resolveCust($('e-cust').value), modelCode: code, model: p ? p.name : trimv($('e-model').value),
     serial: $('e-serial').value.trim(), installDate: $('e-install').value, warrantyEnd: $('e-warranty-end').value,
-    status: $('e-status-in').value, rep: $('e-rep').value, contract: $('e-contract').value,
+    status: $('e-status-in').value, rep: resolveRep($('e-rep').value), contract: $('e-contract').value,
     memo: $('e-memo').value.trim(), as: AS_TMP.slice() };
   const id = $('e-id').value;
   if (id) Object.assign(DB.equipments.find(x => x.id === id), row);
@@ -2167,33 +2365,74 @@ function renderAnalysis() {
 
 /* ───────────────────────── 14. 설정 · 데이터 ───────────────────────── */
 function renderSettings() {
-  $('rep-list').innerHTML = DB.reps.length ? DB.reps.map((r, i) =>
-    `<div class="d-flex align-items-center gap-2" style="padding:8px 0;border-bottom:1px solid #f3f4f6">
-      <i class="bi bi-person-circle" style="color:#94a3b8"></i>
-      <div style="flex:1"><b style="font-size:13px">${esc(r.name)}</b>
-        <span style="font-size:11.5px;color:#64748b;margin-left:6px">${esc(r.role || '')}</span></div>
-      <span style="font-size:11px;color:#94a3b8">딜 ${DB.deals.filter(d => d.rep === r.name).length}</span>
-      <button class="btn btn-sm btn-outline-secondary" onclick="removeRep(${i})"><i class="bi bi-x"></i></button></div>`).join('')
-    : `<div style="color:#94a3b8;font-size:12.5px;padding:8px 0">등록된 담당자가 없습니다</div>`;
+  /* 계정 발급 링크 */
+  const link = $('sb-users-link');
+  if (link) {
+    const ref = String(CFG.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+    link.href = ref ? 'https://supabase.com/dashboard/project/' + ref + '/auth/users' : '#';
+    link.style.display = (isRemote() && isAdmin()) ? 'inline-block' : 'none';
+  }
 
-  $('stage-config').innerHTML = STAGES.map(s =>
-    `<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:120px">
-      <div style="font-size:12px;font-weight:700;color:${s.color}">${esc(s.name)}</div>
-      <div style="font-size:19px;font-weight:800;margin-top:2px">${s.prob}%</div>
-      <div style="font-size:11px;color:#94a3b8">${DB.deals.filter(d => d.stage === s.name).length}건</div></div>`).join('');
+  /* 상단 요약 */
+  const kpi = $('user-kpi');
+  if (kpi) {
+    const fact = (l, v, sub) => '<div class="cdud-fact"><span>' + l + '</span><b>' + v + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+    kpi.innerHTML = '<div class="cdud" style="padding:18px 22px;margin:0"><div class="cdud-kpis" style="border-bottom:0;padding:2px 0 4px">'
+      + '<div class="cdud-hero" style="cursor:default"><span class="l">' + (isRemote() ? '접속 방식' : '저장 방식') + '</span>'
+      + '<b style="font-size:26px">' + (isRemote() ? '서버 공유' : '단독 저장') + '</b>'
+      + '<span class="s">' + (isRemote() ? '로그인한 사람이 같은 데이터를 함께 사용' : 'config.js 에 키를 넣으면 공유 모드가 됩니다') + '</span></div>'
+      + fact('내 계정', esc(ME ? (ME.display_name || ME.email) : '-'), ME ? (ME.role === 'admin' ? '관리자' : '일반') : '')
+      + fact('영업 담당자', DB.reps.length + '명', '딜·일정 배정 대상')
+      + fact('데이터', DB.customers.length + '고객사', DB.deals.length + '딜 · ' + DB.equipments.length + '장비')
+      + '</div></div>';
+  }
 
+  /* 영업 담당자 */
+  $('rep-list').innerHTML = DB.reps.length ? DB.reps.map((r, i) => {
+    const deals = DB.deals.filter(d => d.rep === r.name).length;
+    const sch = DB.schedules.filter(x => x.rep === r.name).length;
+    const linked = isRemote() && ME && (ME.display_name === r.name);
+    return '<div class="d-flex align-items-center gap-2" style="padding:9px 0;border-bottom:1px solid #f3f4f6">'
+      + '<i class="bi bi-person-circle" style="color:#94a3b8;font-size:16px"></i>'
+      + '<div style="flex:1;min-width:0"><b style="font-size:13px">' + esc(r.name) + '</b>'
+      + (linked ? ' <span style="font-size:9.5px;font-weight:800;background:#e6f4f8;color:#0e7490;border-radius:4px;padding:1px 5px">내 계정</span>' : '')
+      + '<input type="text" class="form-control form-control-sm mt-1" style="max-width:220px;font-size:11.5px" value="' + esc(r.role || '') + '"'
+      + ' placeholder="직책 / 파트" onchange="setRepRole(' + i + ',this.value)"></div>'
+      + '<span style="font-size:11px;color:#94a3b8;white-space:nowrap">딜 ' + deals + ' · 일정 ' + sch + '</span>'
+      + '<button class="btn btn-sm btn-outline-secondary" onclick="removeRep(' + i + ')" title="삭제"><i class="bi bi-x"></i></button></div>';
+  }).join('') : '<div style="color:#94a3b8;font-size:12.5px;padding:8px 0">등록된 담당자가 없습니다. 위에서 추가해주세요.</div>';
+
+  /* 파이프라인 단계 */
+  $('stage-config').innerHTML = STAGES.map(st =>
+    '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:120px">'
+    + '<div style="font-size:12px;font-weight:700;color:' + st.color + '">' + esc(st.name) + '</div>'
+    + '<div style="font-size:19px;font-weight:800;margin-top:2px">' + st.prob + '%</div>'
+    + '<div style="font-size:11px;color:#94a3b8">' + DB.deals.filter(d => d.stage === st.name).length + '건</div></div>').join('');
+
+  /* 백업 안내 + 저장 현황 */
   let bytes = 0;
   try { bytes = new Blob([localStorage.getItem(cacheKey()) || '']).size; } catch (e) {}
   const cnt = { 고객사: DB.customers.length, 딜: DB.deals.length, 상담일지: DB.logs.length,
     견적서: DB.quotes.length, 장비: DB.equipments.length, 제품: DB.products.length, 일정: DB.schedules.length };
-  const counts = Object.entries(cnt).map(([k, v]) => `${k} ${v}`).join(' · ');
-  $('storage-info').innerHTML = isRemote()
-    ? `<span style="color:#15803d;font-weight:700"><i class="bi bi-cloud-check me-1"></i>서버 공유 모드</span>
-       — ${esc(String(CFG.SUPABASE_URL).replace(/^https?:\/\//, ''))}<br>${counts}
-       <br><span style="color:#94a3b8">로컬 캐시 ${(bytes / 1024).toFixed(1)} KB (오프라인 대비 사본)</span>`
-    : `<span style="color:#b45309;font-weight:700"><i class="bi bi-hdd me-1"></i>이 브라우저에만 저장</span>
-       — 저장 용량 ${(bytes / 1024).toFixed(1)} KB<br>${counts}`;
+  const counts = Object.entries(cnt).map(([k, v]) => k + ' ' + v).join(' · ');
+  const note = $('backup-note');
+  if (note) note.innerHTML = isRemote()
+    ? '데이터는 Supabase 서버에 저장되어 팀원과 공유됩니다. 다만 <b>무료 플랜은 자동 백업이 없습니다</b> — 실수로 지우면 복구할 수 없으니 주기적으로 JSON 을 내려받아 두세요.'
+    : '현재 데이터는 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지니 JSON 으로 백업해두세요.';
+  $('storage-info').innerHTML = (isRemote()
+      ? '<span style="color:#15803d;font-weight:700"><i class="bi bi-cloud-check me-1"></i>서버 공유 모드</span> — '
+        + esc(String(CFG.SUPABASE_URL).replace(/^https?:\/\//, ''))
+      : '<span style="color:#b45309;font-weight:700"><i class="bi bi-hdd me-1"></i>이 브라우저에만 저장</span>')
+    + '<br>' + counts
+    + '<br><span style="color:#94a3b8">로컬 캐시 ' + (bytes / 1024).toFixed(1) + ' KB</span>';
+
   renderUsers();
+}
+function setRepRole(i, v) {
+  if (!DB.reps[i]) return;
+  DB.reps[i].role = trimv(v);
+  save(true);
+  toast('직책을 수정했습니다');
 }
 function addRep() {
   const name = $('rep-name').value.trim();
@@ -2460,22 +2699,41 @@ async function doChangePw() {
 }
 /* 사용자 관리 (관리자 전용) */
 async function renderUsers() {
-  const card = $('usermgmt-card');
+  const card = $('usermgmt-card'), none = $('usermgmt-none');
   if (!card) return;
-  if (!isRemote() || !isAdmin()) { card.style.display = 'none'; return; }
+  if (!isRemote()) { card.style.display = 'none'; if (none) none.style.display = 'none'; return; }
+  if (!isAdmin()) { card.style.display = 'none'; if (none) none.style.display = 'block'; return; }
+  if (none) none.style.display = 'none';
   card.style.display = 'block';
   const { data, error } = await SB.from('ul_profiles').select('*').order('created_at');
-  if (error) { $('user-list').innerHTML = `<div style="color:#dc2626;font-size:12.5px">목록을 불러오지 못했습니다: ${esc(error.message)}</div>`; return; }
-  $('user-list').innerHTML = (data || []).length ? `<table class="table table-sm mb-0">
-    <thead><tr><th>이름</th><th>이메일</th><th style="width:150px">역할</th><th>가입일</th></tr></thead>
-    <tbody>${data.map(u => `<tr>
-      <td class="fw-bold">${esc(u.display_name || '-')}${u.id === (ME && ME.id) ? ' <span style="font-size:10px;color:#94a3b8">(나)</span>' : ''}</td>
-      <td style="font-size:12px">${esc(u.email || '')}</td>
-      <td><select class="form-select form-select-sm" onchange="setUserRole('${esc(u.id)}',this.value)" ${u.id === (ME && ME.id) ? 'disabled title="본인 역할은 바꿀 수 없습니다"' : ''}>
-        <option value="user" ${u.role === 'user' ? 'selected' : ''}>일반 (삭제 불가)</option>
-        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자 (삭제 가능)</option></select></td>
-      <td style="font-size:12px;color:#64748b">${fmtDate(u.created_at)}</td></tr>`).join('')}</tbody></table>`
-    : `<div style="color:#94a3b8;font-size:12.5px">아직 발급된 계정이 없습니다.</div>`;
+  if (error) {
+    $('user-list').innerHTML = '<div style="color:#dc2626;font-size:12.5px">목록을 불러오지 못했습니다: ' + esc(error.message) + '</div>';
+    return;
+  }
+  const rows = data || [];
+  $('user-list').innerHTML = rows.length ? '<div style="overflow-x:auto"><table class="table table-sm mb-0">'
+    + '<thead><tr><th style="min-width:150px">이름</th><th>이메일</th><th style="width:170px">역할</th><th style="width:110px">가입일</th></tr></thead><tbody>'
+    + rows.map(u => {
+        const me = u.id === (ME && ME.id);
+        return '<tr><td><input type="text" class="form-control form-control-sm" style="max-width:150px" value="'
+          + esc(u.display_name || '') + '" onchange="setUserName(\'' + esc(u.id) + '\',this.value)">'
+          + (me ? '<div style="font-size:10px;color:#0e7490;font-weight:700;margin-top:2px">내 계정</div>' : '') + '</td>'
+          + '<td style="font-size:12px;color:#475569">' + esc(u.email || '') + '</td>'
+          + '<td><select class="form-select form-select-sm" onchange="setUserRole(\'' + esc(u.id) + '\',this.value)"'
+          + (me ? ' disabled title="본인 역할은 바꿀 수 없습니다"' : '') + '>'
+          + '<option value="user"' + (u.role === 'user' ? ' selected' : '') + '>일반 · 조회/입력</option>'
+          + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자 · 삭제 가능</option></select></td>'
+          + '<td style="font-size:12px;color:#64748b">' + fmtDate(u.created_at) + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+    : '<div style="color:#94a3b8;font-size:12.5px">아직 발급된 계정이 없습니다.</div>';
+}
+async function setUserName(id, v) {
+  const nm = trimv(v);
+  if (!nm) { toast('이름을 비울 수 없습니다'); renderUsers(); return; }
+  const { error } = await SB.from('ul_profiles').update({ display_name: nm }).eq('id', id);
+  if (error) { alert('이름 변경 실패: ' + error.message); renderUsers(); return; }
+  if (ME && ME.id === id) { ME.display_name = nm; renderAccountBox(); }
+  toast('이름을 변경했습니다');
 }
 async function setUserRole(id, role) {
   const { error } = await SB.from('ul_profiles').update({ role }).eq('id', id);
@@ -2487,7 +2745,7 @@ async function setUserRole(id, role) {
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); }
-  if (e.key === 'Escape') { closeSearch(); closeDrawer(); }
+  if (e.key === 'Escape') { closeSearch(); closeDrawer(); closeBell(); }
 });
 window.addEventListener('hashchange', () => {
   const p = location.hash.replace('#', '');
@@ -2519,8 +2777,13 @@ async function checkVersion() {
 function applyUpdate() { location.reload(); }
 setInterval(checkVersion, 10 * 60 * 1000);   /* 10분마다 확인 */
 
+document.addEventListener('click', e => {
+  const p = $('bell-panel');
+  if (!p || !p.classList.contains('on')) return;
+  if (p.contains(e.target) || (e.target.closest && e.target.closest('#bell-btn'))) return;
+  p.classList.remove('on');
+});
 function startApp() {
-  $('nav-refresh').style.display = isRemote() ? 'flex' : 'none';
   renderAccountBox();
   refreshSelects();
   refreshCounts();
