@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>UroLink CRM</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%230e7490'/><text x='50' y='68' font-size='54' font-family='sans-serif' font-weight='bold' fill='%23fff' text-anchor='middle'>U</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%230B1220'/><path d='M50 26v48M26 50h48' stroke='%2342A5F5' stroke-width='13' stroke-linecap='round'/></svg>"><rect width='100' height='100' rx='24' fill='%230e7490'/><text x='50' y='68' font-size='54' font-family='sans-serif' font-weight='bold' fill='%23fff' text-anchor='middle'>U</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260730n" rel="stylesheet">
-<script src="config.js?v=20260730n"></script>
+<link href="app.css?v=20260730q" rel="stylesheet">
+<script src="config.js?v=20260730q"></script>
 </head>
 <body>
 
@@ -25,10 +25,11 @@
 <div id="login-screen">
   <div id="login-card">
     <div class="lg-brand">
-      <div class="brand-icon" style="width:38px;height:38px;font-size:18px"><i class="bi bi-activity"></i></div>
+      <div class="brand-icon" style="width:38px;height:38px;font-size:19px"><i class="bi bi-plus-lg"></i></div>
       <div>
-        <div style="font-size:18px;font-weight:800;letter-spacing:-.3px">UroLink</div>
-        <div style="font-size:11px;color:#94a3b8">영업관리 CRM</div>
+        <div style="font-size:21px;font-weight:800;letter-spacing:-.5px">
+          <span class="wm-a">Uro</span><span class="wm-b">LinK</span></div>
+        <div style="font-size:11px;color:#94a3b8">CRM System</div>
       </div>
     </div>
     <div class="lg-field">
@@ -61,10 +62,10 @@
 <!-- ══════════ 사이드바 ══════════ -->
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-brand">
-    <div class="brand-icon"><i class="bi bi-activity"></i></div>
+    <div class="brand-icon"><i class="bi bi-plus-lg"></i></div>
     <div>
-      <div class="brand-name">UroLink</div>
-      <div class="brand-sub">영업관리 CRM</div>
+      <div class="brand-name"><span class="wm-a">Uro</span><span class="wm-b">LinK</span></div>
+      <div class="brand-sub">CRM System</div>
     </div>
   </div>
 
@@ -554,6 +555,25 @@
   </div>
 </div></div></div>
 
+<!-- ══════════ 모달: 상세내역 조회 (드릴다운) ══════════ -->
+<div class="modal fade" id="drillModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header">
+    <div>
+      <h5 class="modal-title" id="drill-title"></h5>
+      <div style="font-size:12px;color:#64748b;margin-top:2px" id="drill-sub"></div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.print()" title="인쇄"><i class="bi bi-printer"></i></button>
+      <button class="btn-close ms-1" data-bs-dismiss="modal"></button>
+    </div>
+  </div>
+  <div class="modal-body" id="drill-body"></div>
+  <div class="modal-footer">
+    <span style="font-size:11.5px;color:#94a3b8;margin-right:auto">행을 클릭하면 해당 기록으로 이동합니다</span>
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+  </div>
+</div></div></div>
+
 <!-- ══════════ 모달: 매출 입력 ══════════ -->
 <div class="modal fade" id="saleModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
   <div class="modal-header">
@@ -698,27 +718,70 @@
 </div></div></div>
 
 <!-- ══════════ 모달: 일정 ══════════ -->
-<div class="modal fade" id="schModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
-  <div class="modal-header"><h5 class="modal-title" id="sch-modal-title">일정 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal fade" id="schModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title" id="sch-modal-title">일정 추가</h5>
+    <span id="s-status-chip"></span>
+    <button class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+  </div>
   <div class="modal-body">
     <input type="hidden" id="s-id">
-    <div class="row g-3">
-      <div class="col-7"><label class="form-label">일자 *</label><input type="date" class="form-control" id="s-date"></div>
-      <div class="col-5"><label class="form-label">시간</label><input type="time" class="form-control" id="s-time"></div>
-      <div class="col-12"><label class="form-label">고객사</label><input type="text" class="form-control" id="s-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
-      <div class="col-6"><label class="form-label">유형</label><select class="form-select" id="s-type">
-        <option>방문</option><option>전화</option><option>데모/시연</option><option>설치</option><option>A/S</option><option>학회</option><option>내부</option></select></div>
-      <div class="col-6"><label class="form-label">담당자</label><input type="text" class="form-control" id="s-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
-      <div class="col-12"><label class="form-label">내용 *</label><input type="text" class="form-control" id="s-title" placeholder="예: 원장 미팅 — ESWL 데모 협의"></div>
-      <div class="col-12">
-        <div class="form-check"><input class="form-check-input" type="checkbox" id="s-done" onchange="document.getElementById('s-result-wrap').style.display=this.checked?'block':'none'">
-          <label class="form-check-label" for="s-done" style="font-size:13px">완료</label></div>
+    <div class="row g-4">
+      <!-- 왼쪽: 일정 -->
+      <div class="col-lg-5">
+        <div class="wt-st"><i class="bi bi-calendar-event me-1"></i>일정</div>
+        <div class="row g-3">
+          <div class="col-7"><label class="form-label">일자 *</label><input type="date" class="form-control" id="s-date"></div>
+          <div class="col-5"><label class="form-label">시간</label><input type="time" class="form-control" id="s-time"></div>
+          <div class="col-12"><label class="form-label">고객사</label>
+            <input type="text" class="form-control" id="s-cust" list="dl-cust" placeholder="고객사명 입력 · 선택" autocomplete="off"></div>
+          <div class="col-6"><label class="form-label">유형</label><select class="form-select" id="s-type">
+            <option>방문</option><option>전화</option><option>데모/시연</option><option>설치</option><option>A/S</option><option>학회</option><option>내부</option></select></div>
+          <div class="col-6"><label class="form-label">담당자</label>
+            <input type="text" class="form-control" id="s-rep" list="dl-rep" placeholder="이름 입력 · 선택" autocomplete="off"></div>
+          <div class="col-12"><label class="form-label">방문 목적 · 내용 *</label>
+            <textarea class="form-control" id="s-title" rows="3" placeholder="예: 원장 미팅 — ESWL 데모 일정 협의"></textarea></div>
+        </div>
       </div>
-      <div class="col-12" id="s-result-wrap" style="display:none"><label class="form-label">결과</label><textarea class="form-control" id="s-result" rows="2"></textarea></div>
+
+      <!-- 오른쪽: 방문 결과 -->
+      <div class="col-lg-7" style="border-left:1px solid var(--border)">
+        <div class="wt-st"><i class="bi bi-clipboard-check me-1"></i>방문 결과
+          <span style="font-size:11px;font-weight:500;color:#94a3b8">· 다녀온 뒤 채우면 자동으로 완료 처리됩니다</span></div>
+
+        <label class="form-label">고객 반응</label>
+        <div class="d-flex gap-2 flex-wrap mb-3" id="s-grade-chips"></div>
+
+        <label class="form-label">무엇을 했고 어떻게 되었나 *</label>
+        <textarea class="form-control mb-3" id="s-result" rows="5"
+          placeholder="예: 원장 면담. 100W 파워와 파이버 호환성 확인. 기존 80W 대비 시술시간 단축에 관심.&#10;간호팀은 세척 동선을 우려. 견적은 리스 조건 포함해 재발송 요청받음."></textarea>
+
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">관심 제품</label>
+            <input type="text" class="form-control" id="s-interest" list="dl-prod" placeholder="제품명 입력 · 선택" autocomplete="off"></div>
+          <div class="col-md-6"><label class="form-label">다음 액션</label>
+            <input type="text" class="form-control" id="s-next" placeholder="예: 리스 조건 포함 견적 재발송"></div>
+          <div class="col-md-6"><label class="form-label">다음 액션 예정일</label>
+            <input type="date" class="form-control" id="s-next-date"></div>
+          <div class="col-md-6 d-flex align-items-end">
+            <div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="s-mklog" checked>
+                <label class="form-check-label" for="s-mklog" style="font-size:12.5px">상담일지로도 기록</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="s-mksch">
+                <label class="form-check-label" for="s-mksch" style="font-size:12.5px">다음 액션을 일정으로 등록</label></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">
+          상담일지로 기록하면 <b>고객사 상세 → 활동 타임라인</b>에 남아 다음 담당자도 볼 수 있습니다.
+        </div>
+      </div>
     </div>
   </div>
   <div class="modal-footer">
     <button class="btn btn-outline-danger btn-sm me-auto" id="s-del-btn" onclick="deleteSch()" style="display:none"><i class="bi bi-trash me-1"></i>삭제</button>
+    <div class="form-check me-3"><input class="form-check-input" type="checkbox" id="s-done">
+      <label class="form-check-label" for="s-done" style="font-size:13px;font-weight:600">완료 처리</label></div>
     <button class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
     <button class="btn btn-primary" onclick="saveSch()">저장</button>
   </div>
@@ -983,6 +1046,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260730n"></script>
+<script src="app.js?v=20260730q"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730n';
+const APP_VERSION = '20260730q';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -715,9 +715,10 @@ function renderDashboard() {
   const maxA = Math.max(1, ...OPEN_STAGES.map(s => openD.filter(d => d.stage === s).reduce((t, d) => t + num(d.amount), 0)));
   $('db-funnel').innerHTML = OPEN_STAGES.map(s => {
     const ds = openD.filter(d => d.stage === s), amt = ds.reduce((t, d) => t + num(d.amount), 0);
-    return `<div class="funnel-row">
+    return `<div class="funnel-row clk" onclick="drillDeals('${esc(s)} 단계 딜','진행 중인 딜',DRL.open('${esc(s)}'))">
       <div class="funnel-label">${esc(s)}</div>
-      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${amt / maxA * 100}%;background:${stageOf(s).color}">${ds.length ? ds.length + '건' : ''}</div></div>
+      <div class="funnel-cnt">${ds.length ? ds.length + '건' : '-'}</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${amt / maxA * 100}%;background:${stageOf(s).color}"></div></div>
       <div class="funnel-amt">${money(amt)}</div></div>`;
   }).join('');
   $('db-funnel-sum').innerHTML = `<div class="d-flex justify-content-between" style="font-size:12px">
@@ -843,6 +844,153 @@ function periodOf(pfx) {
   return [y, a, b];
 }
 const mw = v => Math.round(num(v) / 1e6);   /* 백만원 */
+
+/* ═══════════════ 상세내역 조회 (드릴다운) ═══════════════
+   화면의 숫자·막대·표 행을 누르면 그 숫자를 만든 원본 기록을 표로 보여준다.
+   목록의 행을 다시 누르면 해당 기록의 편집 화면으로 들어간다. */
+function openDrill(title, sub, html) {
+  $('drill-title').textContent = title;
+  $('drill-sub').innerHTML = sub || '';
+  $('drill-body').innerHTML = html;
+  new bootstrap.Modal($('drillModal')).show();
+}
+function closeDrill() { const m = bootstrap.Modal.getInstance($('drillModal')); if (m) m.hide(); }
+function drillGo(fn) { closeDrill(); setTimeout(fn, 300); }
+function drillEmpty(msg) {
+  return '<div class="text-center" style="padding:36px;color:#94a3b8;font-size:13px">'
+    + '<i class="bi bi-inbox" style="font-size:22px;color:#cbd5e1"></i><div class="mt-2">'
+    + esc(msg || '해당 내역이 없습니다') + '</div></div>';
+}
+function drillTable(head, rows, footCells) {
+  if (!rows.length) return drillEmpty();
+  return '<div style="overflow-x:auto"><table class="table table-hover mb-0">'
+    + '<thead><tr>' + head.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr></thead>'
+    + '<tbody>' + rows.join('') + '</tbody>'
+    + (footCells ? '<tfoot><tr style="background:#fafbfc">' + footCells + '</tr></tfoot>' : '')
+    + '</table></div>';
+}
+
+/* ── 딜(수주·매출) 목록 ── */
+function drillDeals(title, sub, list) {
+  list = (list || []).slice().sort((a, b) => String(b.expectedDate).localeCompare(String(a.expectedDate)));
+  const tot = list.reduce((t, d) => t + num(d.amount), 0);
+  const rows = list.map(d => {
+    const cat = dealCat(d), cc = cat === '장비' ? '#16a34a' : '#0e7490';
+    const st = stageOf(d.stage);
+    return '<tr style="cursor:pointer" onclick="drillGo(function(){' +
+      (d.stage === '계약완료' ? "openSaleModal('" + d.id + "')" : "openDrawer('" + d.id + "')") + '})">'
+      + '<td>' + fmtDate(d.expectedDate) + '</td>'
+      + '<td class="fw-bold">' + esc(custName(d.custId)) + '</td>'
+      + '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(d.product) + '</td>'
+      + '<td><span class="badge" style="background:' + cc + '1a;color:' + cc + '">' + esc(cat) + '</span></td>'
+      + '<td><span class="badge" style="background:' + st.color + '1a;color:' + st.color + '">' + esc(d.stage) + '</span></td>'
+      + '<td class="text-center">' + num(d.prob) + '%</td>'
+      + '<td class="text-end fw-bold">' + comma(d.amount) + '</td>'
+      + '<td>' + esc(d.rep || '-') + '</td></tr>';
+  });
+  const foot = '<td class="fw-bold">합계</td><td colspan="5">' + list.length + '건</td>'
+    + '<td class="text-end fw-bold">' + comma(tot) + '</td><td></td>';
+  openDrill(title, sub, drillTable(['일자','고객사','제품','분류','단계','확률','금액','담당'], rows, list.length ? foot : ''));
+}
+/* ── 고객사 목록 ── */
+function drillCusts(title, sub, list) {
+  const rows = (list || []).map(c => '<tr style="cursor:pointer" onclick="drillGo(function(){openCustDetail(\'' + c.id + '\')})">'
+    + '<td class="fw-bold">' + esc(c.name) + '</td>'
+    + '<td>' + esc(c.type || '-') + '</td>'
+    + '<td class="text-center"><span class="grade-badge grade-' + esc(c.grade) + '">' + esc(c.grade) + '</span></td>'
+    + '<td>' + esc(((c.sido || '') + ' ' + (c.gugun || '')).trim() || '-') + '</td>'
+    + '<td>' + esc(c.rep || '-') + '</td>'
+    + '<td class="text-end fw-bold">' + comma(custWonAmount(c.id)) + '</td>'
+    + '<td class="text-center">' + DB.equipments.filter(e => e.custId === c.id).length + '</td></tr>');
+  openDrill(title, sub, drillTable(['고객사','구분','등급','지역','담당','누적 수주','장비'], rows,
+    rows.length ? '<td class="fw-bold">합계</td><td colspan="4">' + list.length + '곳</td><td class="text-end fw-bold">'
+      + comma(list.reduce((t, c) => t + custWonAmount(c.id), 0)) + '</td><td></td>' : ''));
+}
+/* ── 일정 목록 ── */
+function drillSch(title, sub, list) {
+  list = (list || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const rows = list.map(x => '<tr style="cursor:pointer" onclick="drillGo(function(){openSchModal(\'' + x.id + '\')})">'
+    + '<td>' + fmtDate(x.date) + '</td><td>' + esc(x.time || '-') + '</td>'
+    + '<td><span class="sc-type" style="background:' + schCol(x.type) + '1a;color:' + schCol(x.type) + '">' + esc(x.type) + '</span></td>'
+    + '<td class="fw-bold">' + esc(x.custId ? custName(x.custId) : '내부') + '</td>'
+    + '<td style="max-width:250px">' + esc(x.title) + '</td>'
+    + '<td>' + esc(x.rep || '-') + '</td>'
+    + '<td>' + (x.done ? '<span class="sc-type" style="background:#f0fdf4;color:#15803d">완료</span>'
+        : (x.date < today() ? '<span class="sc-type" style="background:#fef2f2;color:#dc2626">놓침</span>'
+        : '<span class="sc-type" style="background:#fff7ed;color:#ea580c">예정</span>')) + '</td>'
+    + '<td style="font-size:11.5px;color:#64748b">' + esc(x.result || '') + '</td></tr>');
+  openDrill(title, sub, drillTable(['일자','시간','유형','고객사','내용','담당','상태','결과'], rows));
+}
+/* ── 장비 목록 ── */
+function drillEquip(title, sub, list) {
+  const rows = (list || []).map(e => {
+    const nd = dDays(e.warrantyEnd);
+    return '<tr style="cursor:pointer" onclick="drillGo(function(){openEquipModal(\'' + e.id + '\')})">'
+      + '<td class="fw-bold">' + esc(custName(e.custId)) + '</td>'
+      + '<td style="max-width:210px;overflow:hidden;text-overflow:ellipsis">' + esc(e.model) + '</td>'
+      + '<td>' + esc(e.serial || '-') + '</td><td>' + fmtDate(e.installDate) + '</td>'
+      + '<td>' + fmtDate(e.warrantyEnd) + (nd == null ? '' : nd < 0 ? ' <span class="dc-flag od">만료</span>'
+          : nd <= 90 ? ' <span class="dc-flag td">D-' + nd + '</span>' : '') + '</td>'
+      + '<td>' + esc(e.status) + '</td><td>' + esc(e.contract || '-') + '</td>'
+      + '<td>' + esc(e.rep || '-') + '</td>'
+      + '<td class="text-center">' + (e.as || []).length + '</td></tr>';
+  });
+  openDrill(title, sub, drillTable(['고객사','모델','시리얼','설치일','보증만료','상태','계약','담당','A/S'], rows));
+}
+/* ── 상담일지 목록 ── */
+function drillLogs(title, sub, list) {
+  list = (list || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const rows = list.map(l => '<tr style="cursor:pointer" onclick="drillGo(function(){openLogModal(\'' + l.id + '\')})">'
+    + '<td>' + fmtDate(l.date) + '</td>'
+    + '<td class="fw-bold">' + esc(custName(l.custId)) + '</td>'
+    + '<td><span class="badge" style="background:#f1f5f9;color:#475569">' + esc(l.type) + '</span></td>'
+    + '<td style="max-width:330px;white-space:normal">' + esc(l.content) + '</td>'
+    + '<td style="font-size:12px;color:#64748b">' + esc(l.interest || '-') + '</td>'
+    + '<td>' + esc(l.rep || '-') + '</td></tr>');
+  openDrill(title, sub, drillTable(['일자','고객사','유형','내용','관심제품','담당'], rows));
+}
+/* ── 견적서 목록 ── */
+function drillQuotes(title, sub, list) {
+  const rows = (list || []).map(q => {
+    const c = quoteCalc(q.items);
+    return '<tr style="cursor:pointer" onclick="drillGo(function(){openQuoteModal(\'' + q.id + '\')})">'
+      + '<td class="fw-bold">' + esc(q.no) + '</td><td>' + esc(custName(q.custId)) + '</td>'
+      + '<td>' + fmtDate(q.date) + '</td>'
+      + '<td style="max-width:230px;overflow:hidden;text-overflow:ellipsis">' + esc((q.items || []).map(i => i.name).join(', ')) + '</td>'
+      + '<td class="text-end fw-bold">' + comma(c.total) + '</td>'
+      + '<td>' + esc(q.status) + '</td><td>' + esc(q.rep || '-') + '</td></tr>';
+  });
+  openDrill(title, sub, drillTable(['견적번호','고객사','견적일','품목','합계','상태','담당'], rows,
+    rows.length ? '<td class="fw-bold">합계</td><td colspan="3">' + list.length + '건</td><td class="text-end fw-bold">'
+      + comma(list.reduce((t, q) => t + quoteCalc(q.items).total, 0)) + '</td><td colspan="2"></td>' : ''));
+}
+/* ── 자주 쓰는 필터 조합 ── */
+const DRL = {
+  wonRange: function (y, a, b, cat) {
+    const from = y + '-' + pad(a) + '-01', to = ymd(new Date(y, b, 0));
+    return WON_DEALS().filter(d => inRange(d.expectedDate, from, to) && (!cat || dealCat(d) === cat));
+  },
+  wonMonth: function (y, m, cat) {
+    return WON_DEALS().filter(d => String(d.expectedDate).slice(0, 7) === y + '-' + pad(m) && (!cat || dealCat(d) === cat));
+  },
+  open: function (stage) {
+    return DB.deals.filter(d => OPEN_STAGES.includes(d.stage) && (!stage || d.stage === stage));
+  }
+};
+const perLabel = function (y, a, b) { return y + '년 ' + a + '월~' + b + '월'; };
+/* 영업분석 화면의 현재 조회기간 — 클릭 시점에 셀렉트를 다시 읽는다 */
+function anaPeriod() {
+  const y = num(($('ana-year') || {}).value) || new Date().getFullYear();
+  const pt = ($('ana-period') || {}).value || 'year';
+  const r = periodRange(y, pt);
+  return { y: y, from: r[0], to: r[1] };
+}
+function anaWon() {
+  const p = anaPeriod();
+  return DB.deals.filter(d => d.stage === '계약완료' && inRange(d.expectedDate, p.from, p.to));
+}
+function anaOpen() { return DB.deals.filter(d => OPEN_STAGES.includes(d.stage)); }
+function anaDesc() { return (($('ana-desc') || {}).textContent || ''); }
 
 function renderOverview() {
   const [y, a, b] = periodOf('ov');
@@ -1503,10 +1651,23 @@ function schStatsBar(all) {
 
 /* ── 미니 카드 (주간/월간 셀) ── */
 function schMiniCard(s) {
-  return '<div class="sc-mini' + (s.done ? ' done' : '') + '" style="border-left-color:' + schCol(s.type) + '"'
-    + ' onclick="event.stopPropagation();openSchModal(\'' + s.id + '\')">'
+  const c = schCol(s.type);
+  const done = !!s.done;
+  const miss = !done && s.date < today();
+  const stColor = done ? '#15803d' : miss ? '#b91c1c' : c;
+  const stText = done ? '완료 ✓' : miss ? '결과 미입력' : esc(s.type) + ' 예정';
+  /* onclick 안의 따옴표는 &#39; 로 넣는다 (브라우저가 속성 파싱할 때 ' 로 복원) */
+  return '<div class="sc-mini' + (done ? ' done' : miss ? ' miss' : '') + '"'
+    + ' style="border-left-color:' + (done ? '#16a34a' : c) + '"'
+    + ' onclick="event.stopPropagation();openSchModal(&#39;' + s.id + '&#39;)">'
+    + '<div class="m-top"><span class="m-st" style="color:' + stColor + '">' + stText + '</span>'
+      + (s.rep ? '<span class="m-rep">' + esc(s.rep) + '</span>' : '') + '</div>'
     + '<div class="m-c">' + esc(s.custId ? custName(s.custId) : '내부') + '</div>'
-    + '<div class="m-s">' + (s.time ? esc(s.time) + ' · ' : '') + esc(s.type) + (s.rep ? ' · ' + esc(s.rep) : '') + '</div></div>';
+    + '<div class="m-s">' + (s.time ? esc(s.time) + ' · ' : '') + esc(s.type)
+      + (s.grade ? ' · ' + esc(gradeLabel(s.grade)) : '') + '</div>'
+    + (done ? (s.result ? '<div class="m-s" style="color:#15803d;margin-top:2px">' + esc(s.result) + '</div>' : '')
+            : '<div class="m-act"><i class="bi bi-pencil-square"></i>결과 입력</div>')
+    + '</div>';
 }
 /* ── 주간 7열 그리드 ── */
 function schWeekGrid(items, wref) {
@@ -1555,11 +1716,13 @@ function schItemRow(s) {
     + '<span style="width:140px;flex-shrink:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
     + esc(s.custId ? custName(s.custId) : '내부') + '</span>'
     + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(s.title)
+    + (s.grade ? ' <span class="sc-type" style="background:#f1f5f9;color:#475569">' + esc(gradeLabel(s.grade)) + '</span>' : '')
     + (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : '') + '</span>'
     + '<span style="width:50px;flex-shrink:0;color:#94a3b8;font-size:11px;text-align:right">' + esc(s.rep || '') + '</span>'
-    + (s.done ? '<span class="sc-type" style="background:#f0fdf4;color:#15803d">완료</span>'
-      : od ? '<span class="sc-type" style="background:#fef2f2;color:#dc2626">놓침</span>'
-      : '<span class="sc-type" style="background:#fff7ed;color:#ea580c">대기</span>') + '</div>';
+    + (s.done ? '<span class="sc-type" style="background:#f0fdf4;color:#15803d"><i class="bi bi-check2"></i> 완료</span>'
+      : '<button class="btn btn-sm ' + (od ? 'btn-outline-danger' : 'btn-outline-primary')
+        + '" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();openSchModal(\'' + s.id + '\')">'
+        + (od ? '결과 입력' : '결과 입력') + '</button>') + '</div>';
 }
 /* ── 월간 달력 ── */
 function schMonthView(items) {
@@ -1583,7 +1746,8 @@ function schMonthView(items) {
     html += '<div class="cal-cell' + (ds === today() ? ' today' : '') + '" onclick="openDayModal(\'' + ds + '\')">'
       + '<div class="d ' + (dow === 6 ? 'sun' : dow === 5 ? 'sat' : '') + '">' + d + '</div>'
       + its.slice(0, 3).map(s => '<div class="cal-ev' + (s.done ? ' done' : '') + '" style="background:' + schCol(s.type)
-        + '1f;color:' + schCol(s.type) + '">' + (s.time ? esc(s.time) + ' ' : '') + esc(s.custId ? custName(s.custId) : s.title) + '</div>').join('')
+        + '1f;color:' + schCol(s.type) + '">' + (s.done ? '\u2713 ' : '') + (s.time ? esc(s.time) + ' ' : '')
+        + esc(s.custId ? custName(s.custId) : s.title) + '</div>').join('')
       + (its.length > 3 ? '<div class="cal-more">+' + (its.length - 3) + '건</div>' : '') + '</div>';
   });
   return '<div id="cal-scroll"><div class="cal-grid" id="cal-grid">' + html + '</div></div>';
@@ -1686,6 +1850,25 @@ function addSchForDay() {
   bootstrap.Modal.getInstance($('dayModal')).hide();
   setTimeout(() => { openSchModal(); $('s-date').value = DAY_SEL || today(); }, 300);
 }
+/* 고객 반응 등급 — 방문 결과의 정성 평가 */
+const SCH_GRADES = [
+  { v: 4, l: '매우 긍정', cls: 'g4', ic: 'bi-emoji-laughing' },
+  { v: 3, l: '긍정',      cls: 'g3', ic: 'bi-emoji-smile' },
+  { v: 2, l: '보통',      cls: 'g2', ic: 'bi-emoji-neutral' },
+  { v: 1, l: '부정',      cls: 'g1', ic: 'bi-emoji-frown' }
+];
+let S_GRADE = 0;
+function renderGradeChips() {
+  const box = $('s-grade-chips');
+  if (!box) return;
+  box.innerHTML = SCH_GRADES.map(g =>
+    '<span class="gr-chip ' + g.cls + (S_GRADE === g.v ? ' on' : '') + '" onclick="pickGrade(' + g.v + ')">'
+    + '<i class="bi ' + g.ic + '"></i>' + g.l + '</span>').join('')
+    + (S_GRADE ? '<span class="gr-chip" onclick="pickGrade(0)" title="선택 해제"><i class="bi bi-x"></i></span>' : '');
+}
+function pickGrade(v) { S_GRADE = (S_GRADE === v ? 0 : v); renderGradeChips(); }
+function gradeLabel(v) { const g = SCH_GRADES.find(x => x.v === num(v)); return g ? g.l : ''; }
+
 function openSchModal(id, preDate) {
   refreshSelects();
   const s = id ? DB.schedules.find(x => x.id === id) : null;
@@ -1700,19 +1883,74 @@ function openSchModal(id, preDate) {
   $('s-title').value = s ? s.title : '';
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
-  $('s-result-wrap').style.display = (s && s.done) ? 'block' : 'none';
+  $('s-interest').value = s ? (s.interest || '') : '';
+  $('s-next').value = s ? (s.nextAction || '') : '';
+  $('s-next-date').value = s ? (s.nextActionDate || '') : '';
+  S_GRADE = s ? num(s.grade) : 0;
+  renderGradeChips();
+  /* 이미 상담일지로 기록된 건은 중복 생성하지 않도록 기본 해제 */
+  $('s-mklog').checked = !(s && s.logId);
+  $('s-mksch').checked = false;
+  /* 상태 칩 */
+  const chip = $('s-status-chip');
+  if (chip) {
+    if (!s) chip.innerHTML = '';
+    else if (s.done) chip.innerHTML = '<span class="st-chip done">완료</span>';
+    else if (s.date < today()) chip.innerHTML = '<span class="st-chip miss">결과 미입력</span>';
+    else chip.innerHTML = '<span class="st-chip plan">예정</span>';
+  }
   new bootstrap.Modal($('schModal')).show();
 }
 function saveSch() {
-  if (!$('s-title').value.trim()) return alert('내용을 입력해주세요.');
-  const row = { date: $('s-date').value || today(), time: $('s-time').value, custId: resolveCust($('s-cust').value),
-    type: $('s-type').value, rep: resolveRep($('s-rep').value), title: $('s-title').value.trim(),
-    done: $('s-done').checked, result: $('s-result').value.trim() };
+  if (!$('s-title').value.trim()) return alert('방문 목적·내용을 입력해주세요.');
+  const result = $('s-result').value.trim();
+  const custId = resolveCust($('s-cust').value);
+  const rep = resolveRep($('s-rep').value);
+  const p = prodByCode(resolveProd($('s-interest').value));
+  /* 결과를 적었으면 완료로 본다 (다녀와서 기록한 것이므로) */
+  const done = $('s-done').checked || !!result;
+  const row = {
+    date: $('s-date').value || today(), time: $('s-time').value, custId,
+    type: $('s-type').value, rep, title: $('s-title').value.trim(),
+    done, result, grade: S_GRADE || 0,
+    interest: p ? p.name : trimv($('s-interest').value),
+    nextAction: trimv($('s-next').value), nextActionDate: $('s-next-date').value
+  };
   const id = $('s-id').value;
-  if (id) Object.assign(DB.schedules.find(x => x.id === id), row);
-  else DB.schedules.push(Object.assign({ id: uid() }, row));
+  let cur;
+  if (id) { cur = DB.schedules.find(x => x.id === id); Object.assign(cur, row); }
+  else { cur = Object.assign({ id: uid() }, row); DB.schedules.push(cur); }
+
+  /* 결과를 상담일지로도 남긴다 → 고객사 활동 타임라인에 축적 */
+  if (result && custId && $('s-mklog').checked) {
+    const logRow = {
+      custId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
+      content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
+      interest: row.interest, nextAction: row.nextAction, nextActionDate: row.nextActionDate, rep
+    };
+    if (cur.logId && DB.logs.some(l => l.id === cur.logId)) {
+      Object.assign(DB.logs.find(l => l.id === cur.logId), logRow);
+    } else {
+      const lid = uid();
+      DB.logs.push(Object.assign({ id: lid }, logRow));
+      cur.logId = lid;
+    }
+  }
+  /* 다음 액션을 후속 일정으로 예약 */
+  if ($('s-mksch').checked && row.nextAction) {
+    DB.schedules.push({
+      id: uid(), date: row.nextActionDate || today(), time: '', custId,
+      type: cur.type, title: row.nextAction, rep, done: false, result: '', grade: 0,
+      interest: row.interest, nextAction: '', nextActionDate: ''
+    });
+  }
   save();
   bootstrap.Modal.getInstance($('schModal')).hide();
+  const msgs = [];
+  if (result) msgs.push('결과 기록');
+  if (result && custId && $('s-mklog').checked) msgs.push('상담일지 생성');
+  if ($('s-mksch').checked && row.nextAction) msgs.push('후속 일정 등록');
+  if (msgs.length) toast(msgs.join(' · ') + ' 완료');
   RENDER[CUR_PAGE]();
 }
 function deleteSch() {
@@ -2482,8 +2720,11 @@ function renderAnalysis() {
         <div class="col-lg-7"><div class="card p-3 h-100"><div class="wt-st">분류별 요약</div>
           ${['장비','소모품','액세서리','서비스'].map(c => {
             const amt = stats.filter(s => s.cat === c).reduce((s2, x) => s2 + x.wonAmt, 0);
-            return `<div class="funnel-row"><div class="funnel-label">${esc(c)}</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${total ? amt / total * 100 : 0}%;background:${{'장비':'#0e7490','소모품':'#16a34a','액세서리':'#7c3aed','서비스':'#ea580c'}[c]}">${total ? Math.round(amt / total * 100) + '%' : ''}</div></div>
+            const cnt = stats.filter(s => s.cat === c).reduce((s2, x) => s2 + x.wonCnt, 0);
+            return `<div class="funnel-row clk" onclick="drillDeals('${esc(c)} 수주 내역','${esc(anaDesc())}',anaWon().filter(function(d){return (prodByCode(d.productCode)||{}).cat==='${esc(c)}'}))">
+              <div class="funnel-label">${esc(c)}</div>
+              <div class="funnel-cnt">${cnt ? cnt + '건' : '-'}</div>
+              <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${total ? amt / total * 100 : 0}%;background:${{'장비':'#0e7490','소모품':'#16a34a','액세서리':'#7c3aed','서비스':'#ea580c'}[c]}"></div></div>
               <div class="funnel-amt">${money(amt)}</div></div>`;
           }).join('')}
         </div></div>
@@ -2548,8 +2789,10 @@ function renderAnalysis() {
           ${reached.map((r, i) => {
             const prev = i > 0 ? reached[i - 1].cnt : r.cnt;
             const conv = prev ? Math.round(r.cnt / prev * 100) : 0;
-            return `<div class="funnel-row"><div class="funnel-label">${esc(r.name)}</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${r.cnt / maxC * 100}%;background:${r.color}">${r.cnt}건</div></div>
+            return `<div class="funnel-row clk" onclick="drillDeals('${esc(r.name)} 이상 도달 딜','실주 제외 · 전체 딜 기준',DB.deals.filter(function(d){var di=STAGES.findIndex(function(x){return x.name===d.stage});return d.stage!=='실주'&&di>=${STAGES.findIndex(x => x.name === r.name)}}))">
+              <div class="funnel-label">${esc(r.name)}</div>
+              <div class="funnel-cnt">${r.cnt}건</div>
+              <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${r.cnt / maxC * 100}%;background:${r.color}"></div></div>
               <div class="funnel-amt">${i === 0 ? '-' : conv + '%'}</div></div>`;
           }).join('')}
           <div style="font-size:11.5px;color:#94a3b8;margin-top:8px">오른쪽 수치 = 직전 단계 대비 전환율(실주 제외, 전체 딜 기준)</div>
