@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730h';
+const APP_VERSION = '20260730i';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2372,81 +2372,8 @@ function renderAnalysis() {
 
 /* ───────────────────────── 14. 설정 · 데이터 ───────────────────────── */
 function renderSettings() {
-  /* 상단 요약 */
-  const kpi = $('user-kpi');
-  if (kpi) {
-    const fact = (l, v, sub) => '<div class="cdud-fact"><span>' + l + '</span><b>' + v + '</b>' + (sub ? '<i>' + sub + '</i>' : '') + '</div>';
-    kpi.innerHTML = '<div class="cdud" style="padding:18px 22px;margin:0"><div class="cdud-kpis" style="border-bottom:0;padding:2px 0 4px">'
-      + '<div class="cdud-hero" style="cursor:default"><span class="l">' + (isRemote() ? '접속 방식' : '저장 방식') + '</span>'
-      + '<b style="font-size:26px">' + (isRemote() ? '서버 공유' : '단독 저장') + '</b>'
-      + '<span class="s">' + (isRemote() ? '로그인한 사람이 같은 데이터를 함께 사용' : 'config.js 에 키를 넣으면 공유 모드가 됩니다') + '</span></div>'
-      + fact('내 계정', esc(ME ? (ME.display_name || ME.email) : '-'), ME ? (ME.role === 'admin' ? '관리자' : '일반') : '')
-      + fact('영업 담당자', DB.reps.length + '명', '딜·일정 배정 대상')
-      + fact('데이터', DB.customers.length + '고객사', DB.deals.length + '딜 · ' + DB.equipments.length + '장비')
-      + '</div></div>';
-  }
-
-  /* 영업 담당자 */
-  $('rep-list').innerHTML = DB.reps.length ? DB.reps.map((r, i) => {
-    const deals = DB.deals.filter(d => d.rep === r.name).length;
-    const sch = DB.schedules.filter(x => x.rep === r.name).length;
-    const linked = isRemote() && ME && (ME.display_name === r.name);
-    return '<div class="d-flex align-items-center gap-2" style="padding:9px 0;border-bottom:1px solid #f3f4f6">'
-      + '<i class="bi bi-person-circle" style="color:#94a3b8;font-size:16px"></i>'
-      + '<div style="flex:1;min-width:0"><b style="font-size:13px">' + esc(r.name) + '</b>'
-      + (linked ? ' <span style="font-size:9.5px;font-weight:800;background:#e6f4f8;color:#0e7490;border-radius:4px;padding:1px 5px">내 계정</span>' : '')
-      + '<input type="text" class="form-control form-control-sm mt-1" style="max-width:220px;font-size:11.5px" value="' + esc(r.role || '') + '"'
-      + ' placeholder="직책 / 파트" onchange="setRepRole(' + i + ',this.value)"></div>'
-      + '<span style="font-size:11px;color:#94a3b8;white-space:nowrap">딜 ' + deals + ' · 일정 ' + sch + '</span>'
-      + '<button class="btn btn-sm btn-outline-secondary" onclick="removeRep(' + i + ')" title="삭제"><i class="bi bi-x"></i></button></div>';
-  }).join('') : '<div style="color:#94a3b8;font-size:12.5px;padding:8px 0">등록된 담당자가 없습니다. 위에서 추가해주세요.</div>';
-
-  /* 파이프라인 단계 */
-  $('stage-config').innerHTML = STAGES.map(st =>
-    '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:120px">'
-    + '<div style="font-size:12px;font-weight:700;color:' + st.color + '">' + esc(st.name) + '</div>'
-    + '<div style="font-size:19px;font-weight:800;margin-top:2px">' + st.prob + '%</div>'
-    + '<div style="font-size:11px;color:#94a3b8">' + DB.deals.filter(d => d.stage === st.name).length + '건</div></div>').join('');
-
-  /* 백업 안내 + 저장 현황 */
-  let bytes = 0;
-  try { bytes = new Blob([localStorage.getItem(cacheKey()) || '']).size; } catch (e) {}
-  const cnt = { 고객사: DB.customers.length, 딜: DB.deals.length, 상담일지: DB.logs.length,
-    견적서: DB.quotes.length, 장비: DB.equipments.length, 제품: DB.products.length, 일정: DB.schedules.length };
-  const counts = Object.entries(cnt).map(([k, v]) => k + ' ' + v).join(' · ');
-  const note = $('backup-note');
-  if (note) note.innerHTML = isRemote()
-    ? '데이터는 Supabase 서버에 저장되어 팀원과 공유됩니다. 다만 <b>무료 플랜은 자동 백업이 없습니다</b> — 실수로 지우면 복구할 수 없으니 주기적으로 JSON 을 내려받아 두세요.'
-    : '현재 데이터는 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지니 JSON 으로 백업해두세요.';
-  $('storage-info').innerHTML = (isRemote()
-      ? '<span style="color:#15803d;font-weight:700"><i class="bi bi-cloud-check me-1"></i>서버 공유 모드</span> — '
-        + esc(String(CFG.SUPABASE_URL).replace(/^https?:\/\//, ''))
-      : '<span style="color:#b45309;font-weight:700"><i class="bi bi-hdd me-1"></i>이 브라우저에만 저장</span>')
-    + '<br>' + counts
-    + '<br><span style="color:#94a3b8">로컬 캐시 ' + (bytes / 1024).toFixed(1) + ' KB</span>';
-
+  /* 계정 관리 전용 화면 — 다른 카드(요약·담당자·백업·단계)는 제거됨 */
   renderUsers();
-}
-function setRepRole(i, v) {
-  if (!DB.reps[i]) return;
-  DB.reps[i].role = trimv(v);
-  save(true);
-  toast('직책을 수정했습니다');
-}
-function addRep() {
-  const name = $('rep-name').value.trim();
-  if (!name) return alert('이름을 입력해주세요.');
-  if (DB.reps.some(r => r.name === name)) return alert('이미 등록된 담당자입니다.');
-  DB.reps.push({ name, role: $('rep-role').value.trim() });
-  $('rep-name').value = ''; $('rep-role').value = '';
-  save(); refreshSelects(); renderSettings();
-}
-function removeRep(i) {
-  if (!ensureAdmin()) return;
-  const r = DB.reps[i]; if (!r) return;
-  const n = DB.deals.filter(d => d.rep === r.name).length;
-  if (!confirm(`${r.name} 담당자를 삭제할까요?${n ? `\n연결된 딜 ${n}건의 담당자명은 그대로 남습니다.` : ''}`)) return;
-  DB.reps.splice(i, 1); save(); refreshSelects(); renderSettings();
 }
 function download(name, content, type) {
   const blob = new Blob([content], { type: type || 'application/json;charset=utf-8' });
@@ -2793,10 +2720,12 @@ function paintUsers() {
             + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자</option></select></td>'
           + '<td style="font-size:11.5px;color:#64748b">' + fmtDate(u.created_at) + '</td>'
           + '<td class="text-end" style="white-space:nowrap">'
-            + '<button class="btn btn-sm btn-outline-secondary" onclick="sendReset(\'' + esc(u.email) + '\')" title="비밀번호 재설정 메일 발송"><i class="bi bi-envelope"></i> 비번</button>'
-            + (me ? '' : ' <button class="btn btn-sm ' + (off ? 'btn-outline-success' : 'btn-outline-danger')
+            + (me ? '' : '<button class="btn btn-sm btn-outline-secondary" onclick="openSetPw(\'' + esc(u.id) + '\')" title="비밀번호를 직접 변경"><i class="bi bi-key"></i> 비번 설정</button>')
+            + (me ? '' : ' <button class="btn btn-sm ' + (off ? 'btn-outline-success' : 'btn-outline-secondary')
                 + '" onclick="setUserActive(\'' + esc(u.id) + '\',' + (off ? 'true' : 'false') + ')">'
                 + (off ? '<i class="bi bi-arrow-counterclockwise"></i> 복구' : '<i class="bi bi-slash-circle"></i> 차단') + '</button>')
+            + (me ? '<span style="font-size:11.5px;color:#94a3b8">본인</span>'
+                  : ' <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(\'' + esc(u.id) + '\')" title="계정 완전 삭제"><i class="bi bi-trash"></i> 삭제</button>')
           + '</td></tr>';
       }).join('');
   }).join('');
@@ -2825,12 +2754,71 @@ async function setUserActive(id, on) {
   toast(on ? '접속을 복구했습니다' : '접속을 차단했습니다');
   renderUsers();
 }
-async function sendReset(email) {
-  if (!email) return;
-  if (!confirm(email + ' 로 비밀번호 재설정 메일을 보낼까요?')) return;
-  const { error } = await SB.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
-  if (error) { alert('발송 실패: ' + error.message); return; }
-  toast('재설정 메일을 보냈습니다');
+/* ══ 관리자가 사용자 비밀번호를 직접 변경 ══
+   남의 비밀번호 변경은 service_role 키가 필요한 관리자 API 라 브라우저에서 직접 못 한다.
+   (그 키를 공개 repo 에 두면 DB 가 통째로 열린다)
+   → Edge Function 'admin-user' 가 서버에서 호출자를 검증한 뒤 대신 처리한다. */
+let PW_TARGET = null;
+function openSetPw(id) {
+  const u = U_ROWS.find(x => x.id === id);
+  if (!u) return;
+  PW_TARGET = u;
+  $('sp-who').innerHTML = esc(u.display_name || '-')
+    + ' <span style="font-weight:400;color:#64748b">(' + esc(u.email || '') + ')</span>';
+  $('sp-pw').value = '';
+  spMsg('');
+  genSetPw();
+  new bootstrap.Modal($('setPwModal')).show();
+}
+function genSetPw() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ', b = 'abcdefghijkmnpqrstuvwxyz', c = '23456789', d = '!@#$%';
+  const pick = (set, k) => Array.from({ length: k },
+    (_, i) => set[(Date.now() + i * 7919 + Math.floor(performance.now() * 1000)) % set.length]).join('');
+  $('sp-pw').value = pick(A, 2) + pick(b, 5) + pick(c, 3) + pick(d, 1);
+}
+function spMsg(m, ok) {
+  const el = $('sp-msg');
+  el.innerHTML = m || '';
+  el.style.display = m ? 'block' : 'none';
+  el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+  el.style.color = ok ? '#15803d' : '#b91c1c';
+  el.style.border = '1px solid ' + (ok ? '#bbf7d0' : '#fecaca');
+}
+async function callAdminFn(body) {
+  try {
+    const { data, error } = await SB.functions.invoke('admin-user', { body });
+    if (error) {
+      let msg = error.message || '요청 실패';
+      try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      if (/not found|404/i.test(msg)) msg = 'Edge Function(admin-user)이 배포되지 않았습니다.';
+      return { error: msg };
+    }
+    if (data && data.error) return { error: data.error };
+    return { data };
+  } catch (e) {
+    return { error: String(e.message || e) };
+  }
+}
+async function doSetPw() {
+  if (!PW_TARGET) return;
+  const pw = trimv($('sp-pw').value);
+  if (pw.length < 8) return spMsg('비밀번호는 8자 이상이어야 합니다.');
+  $('sp-btn').disabled = true;
+  spMsg('변경 중입니다...', true);
+  const r = await callAdminFn({ action: 'set_password', id: PW_TARGET.id, password: pw });
+  $('sp-btn').disabled = false;
+  if (r.error) return spMsg(esc(r.error));
+  spMsg('<b>' + esc(PW_TARGET.display_name || PW_TARGET.email) + '</b> 의 비밀번호를 <b>' + esc(pw)
+    + '</b> 로 변경했습니다.<br>본인에게 전달하고 첫 로그인 후 변경하도록 안내해주세요.', true);
+}
+async function deleteUser(id) {
+  const u = U_ROWS.find(x => x.id === id);
+  if (!u) return;
+  if (!confirm((u.display_name || u.email) + ' 계정을 완전히 삭제할까요?\n\n로그인 계정과 프로필이 지워지고 되돌릴 수 없습니다.\n작성한 딜·일지 기록은 그대로 남습니다.')) return;
+  const r = await callAdminFn({ action: 'delete_user', id });
+  if (r.error) { alert('삭제 실패: ' + r.error); return; }
+  toast('계정을 삭제했습니다');
+  renderUsers();
 }
 
 /* ══ 사용자 추가 (앱 안에서 계정 발급) ══
