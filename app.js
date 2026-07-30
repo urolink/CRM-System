@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730g';
+const APP_VERSION = '20260730h';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2624,9 +2624,10 @@ const LG_FAIL_KEY = 'ul_login_fail';
 const LG_FAIL_MAX = 5;
 function lgFailCount() { try { return num(sessionStorage.getItem(LG_FAIL_KEY)); } catch (e) { return 0; } }
 function lgFailSet(v) { try { sessionStorage.setItem(LG_FAIL_KEY, String(v)); } catch (e) {} }
-function openLgLock(cnt) {
+function openLgLock() {
+  /* 실제 시도 횟수와 무관하게 '5번'으로 고정 표시 */
   const el = $('ll-n');
-  if (el) el.textContent = cnt || lgFailCount();
+  if (el) el.textContent = LG_FAIL_MAX;
   $('lg-lock').classList.add('on');
 }
 function closeLgLock() { $('lg-lock').classList.remove('on'); }
@@ -2644,7 +2645,7 @@ async function doLogin() {
     if (wrong) {
       const c = lgFailCount() + 1;
       lgFailSet(c);
-      if (c >= LG_FAIL_MAX) { lgMsg(''); openLgLock(c); return; }
+      if (c >= LG_FAIL_MAX) { lgMsg(''); openLgLock(); return; }
       return lgMsg('이메일 또는 비밀번호가 올바르지 않습니다. (' + c + '/' + LG_FAIL_MAX + ')');
     }
     return lgMsg(/invalid login|invalid credentials/i.test(m) ? '이메일 또는 비밀번호가 올바르지 않습니다.'
