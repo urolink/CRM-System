@@ -1,0 +1,86 @@
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"><link rel="stylesheet" href="app.css"><div class="main" style="margin-left:0"><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">종합</div><div id="ovb"><div class="cdud" style="padding:18px 22px 20px;margin:0"><div class="ov-band"><div class="ovc hero" onclick="drillMixMonth()"><span class="ovc-l">당월 · 7월</span><b class="ovc-v">1.8억</b><span class="ovc-s">전년 동월 기록 없음</span></div><div class="ovc " onclick="drillMixCat('장비')"><span class="ovc-l">당월 장비</span><b class="ovc-v">1.8억</b><span class="ovc-s">전년 기록 없음</span></div><div class="ovc " onclick="drillMixCat('소모품')"><span class="ovc-l">당월 소모품</span><b class="ovc-v">0</b><span class="ovc-s">전년 기록 없음</span></div><div class="ovc hero sep" onclick="drillMixRange()"><span class="ovc-l">누계 · 2026년 1~7월</span><b class="ovc-v">1.8억</b><span class="ovc-s">전년 동기간 기록 없음</span></div><div class="ovc " onclick="drillMixCat('장비')"><span class="ovc-l">누계 장비</span><b class="ovc-v">1.8억</b><span class="ovc-s">전년 기록 없음</span></div><div class="ovc " onclick="drillMixCat('소모품')"><span class="ovc-l">누계 소모품</span><b class="ovc-v">0</b><span class="ovc-s">전년 기록 없음</span></div></div><div class="ov-band ov-band2"><div class="ovc " onclick="drillDeals('진행 파이프라인','계약완료·실주를 제외한 열린 딜',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))"><span class="ovc-l">진행 파이프라인</span><b class="ovc-v">2억</b><span class="ovc-s">1건 열림</span></div><div class="ovc " onclick="drillWgt()"><span class="ovc-l">확률가중 예상</span><b class="ovc-v">5,000만</b><span class="ovc-s">단계 확률 반영</span></div><div class="ovc " onclick="drillWgt()"><span class="ovc-l">누계 대비 규모</span><b class="ovc-v">28%</b><span class="ovc-s">파이프라인 / 누계 수주</span></div><div class="ovc " onclick="drillDeals('진행 파이프라인','계약완료·실주를 제외한 열린 딜',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))"><span class="ovc-l">열린 딜 평균</span><b class="ovc-v">2억</b><span class="ovc-s">딜 1건당 규모</span></div><div class="ovc " onclick="drillMixMonth()"><span class="ovc-l">당월 비중</span><b class="ovc-v">100%</b><span class="ovc-s">누계 중 당월분</span></div><div class="ovc " onclick="drillMixRange()"><span class="ovc-l">전년 대비 누계</span><b class="ovc-v">-</b><span class="ovc-s">전년 기록 없음</span></div></div></div></div><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">수주관리</div><div class="row g-3"><div class="col-12"><div class="wt-band mb-0"><div class="wt-hero clickable" onclick="drillDeals('열린 딜 1건','계약완료·실주를 제외한 진행 중 딜 전체', DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))"><div class="l">열린 딜</div><b>2억원</b><div class="s">1건 · 평균 2억원</div></div><div class="wt-fact clickable" onclick="drillWgt()"><div class="l">확률가중 예상</div><b>5,000만원</b><div class="s">단계 확률 반영 · 25%</div></div><div class="wt-fact clickable" onclick="drillDeals('2026 수주','2026년 계약완료 딜', DB.deals.filter(function(d){return d.stage==='계약완료' && String(d.expectedDate).slice(0,4)=='2026'}))"><div class="l">2026 수주</div><b class="gr">1.8억원</b><div class="s">1건</div></div><div class="wt-fact clickable" onclick="drillDeals('2026 실주 1건','성공률 50% · 종결 2건 기준', DB.deals.filter(function(d){return d.stage==='실주' && String(d.expectedDate).slice(0,4)=='2026'}))"><div class="l">수주 성공률</div><b class="gr">50%</b><div class="s">종결 2건 중 실주 1건</div></div><div class="wt-fact clickable" onclick="drillDeals('이번달 마감 예정','예상 수주일이 이번달인 열린 딜', DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0 && String(d.expectedDate).slice(0,7)==='2026-07'}))"><div class="l">이번달 마감 예정</div><b class="rd">0건</b><div class="s">0원</div></div><div class="wt-fact clickable" onclick="drillDeals('체결 완료 딜','등록일부터 종결일까지 평균 122일', DB.deals.filter(function(d){return d.stage==='계약완료' && d.createdAt && d.closedAt}))"><div class="l">평균 체결 소요</div><b>122일</b><div class="s">딜 등록 → 계약완료</div></div></div></div></div><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">현황판</div><div class="wt-band" id="dbb">
+    <div class="wt-hero clickable" onclick="drillDeals('올해 확정 수주','올해 (2026.01.01~2026.12.31) 예상 수주일 기준 계약완료',DB.deals.filter(function(d){return d.stage==='계약완료'&&inRange(d.expectedDate,DRL.dbA,DRL.dbB)}))">
+      <div class="l">올해 확정 수주 (계약완료)</div>
+      <b>1.8억원</b>
+      <div class="s">1건 · 평균 1.8억원</div>
+    </div>
+    <div class="wt-fact clickable" onclick="drillDeals('진행 파이프라인','계약완료·실주를 제외한 열린 딜 전체',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0}))">
+      <div class="l">진행 파이프라인</div><b>2억원</b><div class="s">1건 열림</div></div>
+    <div class="wt-fact clickable" onclick="drillWgt()">
+      <div class="l">확률가중 예상</div><b>5,000만원</b><div class="s">단계 확률 반영</div></div>
+    <div class="wt-fact clickable" onclick="drillDeals('올해 종결 딜','계약완료 1건 + 실주 1건 · 성공률 50%',DB.deals.filter(function(d){return (d.stage==='계약완료'||d.stage==='실주')&&inRange(d.expectedDate,DRL.dbA,DRL.dbB)}))">
+      <div class="l">수주 성공률</div><b class="gr">50%</b>
+      <div class="s">종결 2건 중 1건</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('거래 고객사','등록된 고객사 전체',DB.customers)">
+      <div class="l">거래 고객사</div><b>2</b>
+      <div class="s">A등급 1곳</div></div>
+    <div class="wt-fact clickable" onclick="drillDeals('이번달 마감 예정','예상 수주일이 이번달인 열린 딜',DB.deals.filter(function(d){return OPEN_STAGES.indexOf(d.stage)>=0&&String(d.expectedDate).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 마감 예정</div><b>0건</b>
+      <div class="s">0원</div></div>
+    <div class="wt-fact clickable" onclick="drillDeals('계약완료 딜 전체','평균 규모 산정 대상',DB.deals.filter(function(d){return d.stage==='계약완료'}))">
+      <div class="l">평균 수주 규모</div><b>1.8억원</b>
+      <div class="s">계약완료 1건 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillSch('이번달 완료 활동','방문·전화·데모 등 완료 처리된 일정',DB.schedules.filter(function(x){return x.done&&String(x.date).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 활동</div><b>0건</b>
+      <div class="s">완료 처리 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillRebuy(true)">
+      <div class="l">재구매 도래</div><b class="">0건</b>
+      <div class="s">소모품 재구매 시점</div></div></div><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">고객사</div><div class="wt-band" id="cub">
+    <div class="wt-hero clickable" onclick="drillCusts('전체 고객사','누적 수주 1.8억원',DB.customers)">
+      <div class="l">전체 고객사</div><b>2곳</b>
+      <div class="s">누적 수주 1.8억원</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('A등급 고객사','핵심 관리 대상',DB.customers.filter(function(c){return c.grade==='A'}))">
+      <div class="l">A등급</div><b>1</b><div class="s">핵심 관리</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('B · C등급 고객사','성장·유지 대상',DB.customers.filter(function(c){return c.grade==='B'||c.grade==='C'}))">
+      <div class="l">B / C등급</div><b>1 / 0</b><div class="s">성장·유지</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('장비 보유 고객사','설치 장비가 1대 이상인 고객사',DB.customers.filter(function(c){return DB.equipments.some(function(e){return e.custId===c.id})}))">
+      <div class="l">장비 보유</div><b>1곳</b><div class="s">설치 1대</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('30일 내 접촉 고객사','최근 30일 상담일지가 있는 고객사',DB.customers.filter(function(c){return DB.logs.some(function(l){return l.custId===c.id&&(-dDays(l.date))<=30})}))">
+      <div class="l">30일 내 접촉</div><b>1곳</b><div class="s">상담일지 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('누적 수주가 있는 고객사','평균 산정 대상',DB.customers.filter(function(c){return custWonAmount(c.id)>0}))">
+      <div class="l">고객사당 평균</div><b>1.8억원</b>
+      <div class="s">거래 있는 1곳 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('60일 이상 미접촉','상담일지가 60일 이상 없는 고객사',DB.customers.filter(function(c){var L=DB.logs.filter(function(l){return l.custId===c.id}).map(function(l){return l.date}).sort().pop();return !L||(-dDays(L))>60}))">
+      <div class="l">60일+ 미접촉</div><b class="rd">1곳</b>
+      <div class="s">이탈 위험 관리 대상</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('이번달 신규 등록','createdAt 기준',DB.customers.filter(function(c){return String(c.createdAt).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 신규</div><b>0곳</b>
+      <div class="s">신규 등록 고객사</div></div></div><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">장비</div><div class="wt-band" id="eqb">
+    <div class="wt-hero clickable" onclick="drillEquip('설치 장비 전체','1개 고객사에 1대',DB.equipments)">
+      <div class="l">설치 장비 (Installed Base)</div><b>1대</b>
+      <div class="s">1개 고객사</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('보증 90일 내 만료','유지보수 계약 제안 대상',DB.equipments.filter(function(e){var n=dDays(e.warrantyEnd);return n!=null&&n>=0&&n<=90}))">
+      <div class="l">보증 90일 내 만료</div><b class="rd">1</b><div class="s">유지보수 영업 기회</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('보증 만료 장비','UL-CARE 제안 대상',DB.equipments.filter(function(e){var n=dDays(e.warrantyEnd);return n!=null&&n<0}))">
+      <div class="l">보증 만료</div><b>0</b><div class="s">UL-CARE 제안 대상</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('수리중 장비','A/S 진행 중',DB.equipments.filter(function(e){return e.status==='수리중'}))">
+      <div class="l">수리중</div><b class="">0</b><div class="s">A/S 진행</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('A/S 이력 있는 장비','누적 1회',DB.equipments.filter(function(e){return (e.as||[]).length>0}))">
+      <div class="l">A/S 누적</div><b>1회</b><div class="s">이력 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillRebuy(true)">
+      <div class="l">소모품 재구매 도래</div>
+      <b class="">0</b>
+      <div class="s">0원 규모</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('보증 유효 장비','보증만료일이 남아 있는 장비',DB.equipments.filter(function(e){var d=dDays(e.warrantyEnd);return d!=null&&d>90}))">
+      <div class="l">보증 유효</div><b class="gr">0</b>
+      <div class="s">90일 이상 남음</div></div>
+    <div class="wt-fact clickable" onclick="drillEquip('설치일 기록 장비','평균 사용연수 산정 대상',DB.equipments.filter(function(e){return !!e.installDate}))">
+      <div class="l">평균 사용연수</div><b>2.6년</b>
+      <div class="s">교체 제안 판단 기준</div></div></div><div style="font:700 12px sans-serif;color:#64748b;margin:14px 0 4px">견적</div><div class="wt-band" id="qub">
+    <div class="wt-hero clickable" onclick="drillQuotes('견적 전체','VAT 포함 총액 2.2억원',DB.quotes)">
+      <div class="l">견적 총액 (VAT 포함)</div><b>2.2억원</b><div class="s">전체 1건</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('발송 대기·진행 견적','아직 종결되지 않은 견적',DB.quotes.filter(function(x){return x.status!=='수주'&&x.status!=='실주'}))">
+      <div class="l">발송 대기·진행</div><b>1</b><div class="s">2.2억원</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('수주 전환 견적','상태가 수주인 견적',DB.quotes.filter(function(x){return x.status==='수주'}))">
+      <div class="l">수주 전환</div><b class="gr">0</b><div class="s">0원</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('실주 견적','성공률 0% · 종결 0건 기준',DB.quotes.filter(function(x){return x.status==='실주'}))">
+      <div class="l">견적 성공률</div><b>0%</b><div class="s">수주/종결 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('견적 전체','평균 금액 산정 대상',DB.quotes)">
+      <div class="l">평균 견적액</div><b>2.2억원</b>
+      <div class="s">VAT 포함 1건 평균</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('유효기간 만료 견적','발송 상태인데 유효기간이 지난 견적',DB.quotes.filter(function(x){return quoteExpired(x)}))">
+      <div class="l">유효기간 만료</div><b class="">0</b>
+      <div class="s">재발송·종결 처리 필요</div></div>
+    <div class="wt-fact clickable" onclick="drillQuotes('이번달 발송 견적','작성일이 이번달인 견적',DB.quotes.filter(function(x){return String(x.date).slice(0,7)===today().slice(0,7)}))">
+      <div class="l">이번달 발송</div><b>1</b>
+      <div class="s">견적 활동량</div></div></div></div>

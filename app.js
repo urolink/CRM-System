@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730w';
+const APP_VERSION = '20260730x';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -613,6 +613,20 @@ const digitsOnly = v => String(v == null ? '' : v).replace(/[^0-9]/g, '');
 const Q = String.fromCharCode(39);
 /* 줄바꿈. 패치 스크립트를 거치며 백슬래시가 사라지는 사고가 반복돼 상수로 둔다 */
 const NL = String.fromCharCode(10);
+/* 인라인 핸들러(onclick 등)의 JS 문자열에 값을 넣을 때 쓴다.
+   ⚠ esc() 를 쓰면 안 된다. esc() 는 ' → &#39; 로 바꾸는데 브라우저가 속성을
+      파싱할 때 다시 ' 로 되돌리므로 JS 문자열이 거기서 끊긴다.
+      담당자·경쟁사·태그·제품코드는 사용자가 직접 입력하는 값이라 실제 위험이다.
+   먼저 JS 이스케이프(\ 와 ')를 넣고, 그 다음 HTML 속성 이스케이프를 한다. */
+const jsq = v => String(v == null ? '' : v)
+  .replace(/\\/g, '\\\\')
+  .replace(/'/g, "\\'")
+  .replace(/[\r\n]+/g, ' ')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
 /* 변경 기록용 사용자 표시명 (로컬 모드면 빈 문자열) */
 const curUserName = () => (ME && (ME.display_name || ME.email)) || '';
 
@@ -1471,8 +1485,8 @@ function lostBreakdown(key, emptyLabel) {
   return '<div class="ana-sum">실주 <b>' + lost.length + '건</b> · <b>' + money(totA) + '원</b>'
       + (key === 'lostReason' && unrec ? ' <em>· 사유 미기록 ' + unrec + '건</em>' : '') + '</div>'
     + rows.map(([k, v]) =>
-        '<div class="funnel-row clk" onclick="drillLostBy(&#39;' + esc(key) + '&#39;,&#39;' + esc(k)
-          + '&#39;,&#39;' + esc(emptyLabel) + '&#39;)">'
+        '<div class="funnel-row clk" onclick="drillLostBy(&#39;' + jsq(key) + '&#39;,&#39;' + jsq(k)
+          + '&#39;,&#39;' + jsq(emptyLabel) + '&#39;)">'
         + '<div class="funnel-label" style="width:108px">' + esc(k) + '</div>'
         + '<div class="funnel-cnt">' + v.cnt + '건</div>'
         + '<div class="funnel-bar-wrap"><div class="funnel-bar" style="width:'
@@ -1502,7 +1516,7 @@ function compWinTable() {
     const closed = wonAt + v.cnt;
     const wr = closed ? Math.round(wonAt / closed * 100) : 0;
     const gap = v.gaps.length ? Math.round(v.gaps.reduce((t, x) => t + x, 0) / v.gaps.length) : null;
-    return '<tr style="cursor:pointer" onclick="drillLostBy(&#39;competitor&#39;,&#39;' + esc(k)
+    return '<tr style="cursor:pointer" onclick="drillLostBy(&#39;competitor&#39;,&#39;' + jsq(k)
         + '&#39;,&#39;미기록&#39;)">'
       + '<td class="fw-bold">' + esc(k) + '</td>'
       + '<td class="text-center fw-bold" style="color:#dc2626">' + v.cnt + '</td>'
@@ -1778,8 +1792,8 @@ function renderTargetTab(y, a, b, wonD) {
         + '<u style="text-decoration:none;font-size:11.5px;font-weight:600;color:#94a3b8;margin-left:6px">'
         + '세로선 = 기간 진행률 ' + paceP + '%</u></div>'
         + (reps.length ? reps.map(x => targetRow(x.r, x.act, x.tgt, prog,
-            'drillDeals(' + Q + esc(x.r) + ' 수주' + Q + ',' + Q + '기간 내 계약완료' + Q
-            + ',DB.deals.filter(function(d){return d.stage===' + Q + '계약완료' + Q + '&&d.rep===' + Q + esc(x.r) + Q
+            'drillDeals(' + Q + jsq(x.r) + ' 수주' + Q + ',' + Q + '기간 내 계약완료' + Q
+            + ',DB.deals.filter(function(d){return d.stage===' + Q + '계약완료' + Q + '&&d.rep===' + Q + jsq(x.r) + Q
             + '&&inRange(d.expectedDate,DRL.anaA,DRL.anaB)}))')).join('')
           : '<div class="ana-empty">담당자 실적·목표가 없습니다</div>')
       + '</div></div>'
@@ -3564,7 +3578,7 @@ function renderCustomers() {
 
   const tags = [...new Set(all.flatMap(c => (c.tags || []).map(t => String(t).trim()).filter(Boolean)))];
   $('c-tagbar').innerHTML = tags.length ? `<span class="pipe-chip ${C_TAG ? '' : 'on'}" onclick="setCTag('')">전체</span>`
-    + tags.map(t => `<span class="pipe-chip ${C_TAG === t ? 'on' : ''}" onclick="setCTag('${esc(t)}')">${esc(t)}</span>`).join('') : '';
+    + tags.map(t => `<span class="pipe-chip ${C_TAG === t ? 'on' : ''}" onclick="setCTag('${jsq(t)}')">${esc(t)}</span>`).join('') : '';
 
   const rows = all.filter(c => {
     if (g && c.grade !== g) return false;
@@ -4143,7 +4157,7 @@ function renderProducts() {
       <td class="text-center" style="font-size:12px">${esc(p.unit || '-')}</td>
       <td class="text-center">${num(p.warranty) || '-'}</td>
       <td class="text-end">${cnt || '-'}</td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openProdModal('${esc(p.code)}')"><i class="bi bi-pencil"></i></button></td></tr>`;
+      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openProdModal('${jsq(p.code)}')"><i class="bi bi-pencil"></i></button></td></tr>`;
   }).join('') : `<tr><td colspan="8" class="table-empty">제품이 없습니다</td></tr>`;
 }
 function openProdModal(code) {
