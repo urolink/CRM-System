@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731l';
+const APP_VERSION = '20260731m';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -270,8 +270,16 @@ async function pullRemote(withToast) {
   /* 아직 서버에 테이블이 없는 선택적 컬렉션(목표·이력·타겟병원)은 서버의 빈 결과로
      로컬 데이터를 지우면 안 된다 — 이 브라우저(캐시)에 있던 값을 그대로 이어간다.
      ⚠ 여기서 덮어써버리면 migration_v*.sql 실행 전까지 새로고침할 때마다
-        타겟병원 등이 통째로 사라진다(실제로 있었던 버그). */
-  const prevLocal = DB || blankDB();
+        타겟병원 등이 통째로 사라진다(실제로 있었던 버그).
+     ⚠ F5로 완전히 새로 로드하면 이 시점의 DB는 아직 null 이다(remote 모드는
+        loadLocal() 을 안 거친다) — 그럴 땐 localStorage 캐시에서 이어받아야
+        한다. 안 그러면 '메모리상 DB'만 비어있다고 착각해 캐시까지 무시하고
+        빈 값으로 지워버린다(F5 할 때마다 사라지던 원인). */
+  let prevLocal = DB;
+  if (!prevLocal) {
+    try { prevLocal = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); } catch (e) { prevLocal = null; }
+  }
+  prevLocal = prevLocal || blankDB();
   DB = blankDB();
   names.forEach((n, i) => {
     DB[n] = MISSING_TABLES.has(n) ? (prevLocal[n] || []) : (res[i].data || []).map(r => r.data).filter(Boolean);
