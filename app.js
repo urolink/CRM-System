@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731g';
+const APP_VERSION = '20260731h';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3102,6 +3102,13 @@ function renderGradeChips() {
     + (S_GRADE ? '<span class="gr-chip" onclick="pickGrade(0)" title="선택 해제"><i class="bi bi-x"></i></span>' : '');
 }
 function pickGrade(v) { S_GRADE = (S_GRADE === v ? 0 : v); renderGradeChips(); }
+/* 방문 결과 — 구매여부에 따라 관련 칸만 보여준다 (영업 활동 보고서 양식) */
+function purchaseStatusChange() {
+  const v = $('s-purchase-status').value;
+  $('s-purchase-amount-wrap').style.display = v === '구매' ? 'block' : 'none';
+  $('s-propose-amount-wrap').style.display = (v === '미구매' || v === '보류') ? 'block' : 'none';
+  $('s-nonpurchase-wrap').style.display = v === '미구매' ? 'block' : 'none';
+}
 function gradeLabel(v) { const g = SCH_GRADES.find(x => x.v === num(v)); return g ? g.l : ''; }
 
 /* ── 일정 모달 안의 병원(고객사) 상세 요약 ──
@@ -3214,6 +3221,11 @@ function openSchModal(id, preDate, forceProspectId) {
   $('s-title').value = s ? s.title : (pr ? (pr.name + ' 방문') : '');
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
+  $('s-purchase-status').value = s ? (s.purchaseStatus || '') : '';
+  $('s-purchase-amount').value = s && num(s.purchaseAmount) ? comma(s.purchaseAmount) : '';
+  $('s-propose-amount').value = s && num(s.proposeAmount) ? comma(s.proposeAmount) : '';
+  $('s-nonpurchase-reason').value = s ? (s.nonPurchaseReason || '') : '';
+  purchaseStatusChange();
   $('s-interest').value = s && s.interest ? ((prodByName(s.interest) || {}).code || '') : '';
   $('s-next').value = s ? (s.nextAction || '') : '';
   $('s-next-date').value = s ? (s.nextActionDate || '') : '';
@@ -3255,6 +3267,9 @@ function saveSch() {
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
     interest: p ? p.name : '',
+    /* 영업 활동 보고서 양식 — 결과 및 담당자 의견 */
+    purchaseStatus: $('s-purchase-status').value, purchaseAmount: num($('s-purchase-amount').value),
+    proposeAmount: num($('s-propose-amount').value), nonPurchaseReason: trimv($('s-nonpurchase-reason').value),
     nextAction: trimv($('s-next').value), nextActionDate: $('s-next-date').value
   };
   const id = $('s-id').value;
@@ -3271,6 +3286,9 @@ function saveSch() {
     const logRow = {
       custId, prospectId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
+      grade: row.grade,
+      purchaseStatus: row.purchaseStatus, purchaseAmount: row.purchaseAmount,
+      proposeAmount: row.proposeAmount, nonPurchaseReason: row.nonPurchaseReason,
       interest: row.interest, nextAction: row.nextAction, nextActionDate: row.nextActionDate, rep
     };
     if (cur.logId && DB.logs.some(l => l.id === cur.logId)) {
