@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731d';
+const APP_VERSION = '20260731e';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -601,7 +601,6 @@ function fillDatalist(id, vals) {
 }
 function refreshDatalists() {
   fillDatalist('dl-cust', DB.customers.map(c => c.name).sort((a, b) => String(a).localeCompare(String(b), 'ko')));
-  fillDatalist('dl-prod', DB.products.map(p => p.name));
   fillDatalist('dl-rep', repNames());
   /* 기존 값에서 태그·시도 자동완성 목록을 만든다 */
   fillDatalist('dl-tag', [...new Set(DB.customers.flatMap(c => (c.tags || []).map(t => String(t).trim())))].filter(Boolean));
@@ -655,21 +654,6 @@ function resolveCust(v) {
   AUTO_ADDED.push('고객사 ' + nm);
   return c.id;
 }
-function autoProdCode() {
-  let i = DB.products.length + 1;
-  while (prodByCode('P' + String(i).padStart(3, '0'))) i++;
-  return 'P' + String(i).padStart(3, '0');
-}
-function resolveProd(v, catHint) {
-  const nm = trimv(v);
-  if (!nm) return '';
-  const hit = prodByName(nm);
-  if (hit) return hit.code;
-  const code = autoProdCode();
-  DB.products.push({ code, name: nm, cat: catHint || '장비', price: 0, unit: 'EA', warranty: 12, memo: '자동 등록', auto: true });
-  AUTO_ADDED.push('제품 ' + nm);
-  return code;
-}
 function resolveRep(v) {
   const nm = trimv(v);
   if (!nm) return '';
@@ -685,10 +669,16 @@ function flushAutoAdded() {
   setTimeout(() => toast(msg), 700);
 }
 
+/* 제품/장비 선택칸 — 등록된 제품 중에서만 고를 수 있다(자유 타이핑으로 새 제품이
+   생기지 않는다). 제품이 새로 등록되면 refreshSelects() 가 다시 불릴 때 자동으로 목록에 반영된다. */
+function fillProductSelect(id) {
+  fillSelect($(id), DB.products.map(p => ({ v: p.code, l: p.name })), { blank: '제품 선택', keep: true });
+}
 function refreshSelects() {
   refreshDatalists();
   /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
   ['pipe-rep','c-rep','pr-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
+  ['d-product','sl-product','e-model','l-interest','s-interest','pr-interest'].forEach(fillProductSelect);
   fillSelect($('d-stage'), STAGES.map(s => s.name));
   fillSelect($('d-lost-reason'), LOST_REASONS, { blank: '선택하세요', keep: true });
   fillDatalist('dl-comp', compNames());
@@ -1281,7 +1271,7 @@ function rSumProduct(year, a, b, code) {
    내부적으로는 '계약완료' 딜로 저장되므로 종합·매출믹스·영업분석에 그대로 반영된다.
    src:'direct' 로 표시해 파이프라인에서 올라온 건과 구분한다. */
 function openSaleModal(id) {
-  refreshDatalists();
+  refreshSelects();
   const d = id ? DB.deals.find(x => x.id === id) : null;
   $('sale-modal-title').innerHTML = '<i class="bi bi-cash-coin me-2" style="color:var(--blue)"></i>'
     + (d ? '매출 수정' : '매출 입력');
@@ -1289,7 +1279,7 @@ function openSaleModal(id) {
   $('sl-id').value = d ? d.id : '';
   $('sl-date').value = d ? (d.expectedDate || today()) : today();
   $('sl-cust').value = d ? custName(d.custId) : '';
-  $('sl-product').value = d ? (d.product || '') : '';
+  $('sl-product').value = d ? (d.productCode || '') : '';
   $('sl-qty').value = d ? (d.qty || 1) : 1;
   $('sl-amount').value = d ? comma(d.amount) : '';
   $('sl-rep').value = d ? (d.rep || '') : ((ME && ME.display_name) || '');
@@ -1297,23 +1287,23 @@ function openSaleModal(id) {
   new bootstrap.Modal($('saleModal')).show();
 }
 function saleCalc() {
-  const p = prodByName(trimv($('sl-product').value));
+  const p = prodByCode($('sl-product').value);
   if (!p) return;
   $('sl-amount').value = comma(num(p.price) * Math.max(1, num($('sl-qty').value)));
 }
 function saveSale(keepOpen) {
   if (!trimv($('sl-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
-  if (!trimv($('sl-product').value)) return alert('제품을 입력하거나 선택해주세요.');
+  if (!$('sl-product').value) return alert('제품을 선택해주세요.');
   const amt = num($('sl-amount').value);
   if (!amt) return alert('금액을 입력해주세요.');
   const dt = $('sl-date').value || today();
   const custId = resolveCust($('sl-cust').value);
-  const code = resolveProd($('sl-product').value);
+  const code = $('sl-product').value;
   const p = prodByCode(code);
   /* 모달에 없는 필드(nextAction 등)는 건드리지 않는다.
      수주 파이프라인에서 올라온 건을 여기서 수정해도 출처(src)와 후속 액션이 보존된다. */
   const row = {
-    custId, productCode: code, product: p ? p.name : trimv($('sl-product').value),
+    custId, productCode: code, product: p ? p.name : '',
     cat: p ? p.cat : '장비',
     qty: num($('sl-qty').value) || 1, amount: amt,
     stage: '계약완료', prob: 100, expectedDate: dt, closedAt: dt,
@@ -2628,7 +2618,7 @@ function openDealModal(id, custId) {
   $('d-del-btn').style.display = d ? 'inline-block' : 'none';
   $('d-id').value = d ? d.id : '';
   $('d-cust').value = d ? custName(d.custId) : (custId ? custName(custId) : '');
-  $('d-product').value = d ? (d.product || '') : '';
+  $('d-product').value = d ? (d.productCode || '') : '';
   $('d-qty').value = d ? (d.qty || 1) : 1;
   $('d-amount').value = d ? comma(d.amount) : '';
   $('d-stage').value = d ? d.stage : '상담중';
@@ -2648,7 +2638,7 @@ function openDealModal(id, custId) {
 }
 function dealProdChange() { dealCalc(); }
 function dealCalc() {
-  const p = prodByName(trimv($('d-product').value));
+  const p = prodByCode($('d-product').value);
   if (!p) return;
   $('d-amount').value = comma(num(p.price) * Math.max(1, num($('d-qty').value)));
 }
@@ -2662,7 +2652,7 @@ function toggleLostBox() {
 }
 function saveDeal() {
   if (!trimv($('d-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
-  if (!trimv($('d-product').value)) return alert('제품을 입력하거나 선택해주세요.');
+  if (!$('d-product').value) return alert('제품을 선택해주세요.');
   const amt = num($('d-amount').value);
   if (!amt) return alert('금액을 입력해주세요.');
   const isLost = $('d-stage').value === '실주';
@@ -2672,7 +2662,7 @@ function saveDeal() {
     return alert('실주 사유를 선택해주세요. 사유가 없으면 실주 분석을 할 수 없습니다.');
   }
   const custId = resolveCust($('d-cust').value);
-  const code = resolveProd($('d-product').value);
+  const code = $('d-product').value;
   const p = prodByCode(code);
   const id = $('d-id').value;
   const row = {
@@ -2750,7 +2740,7 @@ function openLogModal(id, custId) {
   $('l-date').value = l ? l.date : today();
   $('l-cust').value = l ? custName(l.custId) : (custId ? custName(custId) : '');
   $('l-type').value = l ? l.type : '방문';
-  $('l-interest').value = l ? (l.interest || '') : '';
+  $('l-interest').value = l && l.interest ? ((prodByName(l.interest) || {}).code || '') : '';
   $('l-rep').value = l ? (l.rep || '') : '';
   $('l-content').value = l ? l.content : '';
   $('l-next').value = l ? (l.nextAction || '') : '';
@@ -2760,7 +2750,7 @@ function openLogModal(id, custId) {
 function saveLog() {
   if (!trimv($('l-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!$('l-content').value.trim()) return alert('상담 내용을 입력해주세요.');
-  const p = prodByCode(resolveProd($('l-interest').value));
+  const p = prodByCode($('l-interest').value);
   const row = { custId: resolveCust($('l-cust').value), date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value };
@@ -3198,7 +3188,7 @@ function openSchModal(id, preDate) {
   $('s-title').value = s ? s.title : '';
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
-  $('s-interest').value = s ? (s.interest || '') : '';
+  $('s-interest').value = s && s.interest ? ((prodByName(s.interest) || {}).code || '') : '';
   $('s-next').value = s ? (s.nextAction || '') : '';
   $('s-next-date').value = s ? (s.nextActionDate || '') : '';
   S_GRADE = s ? num(s.grade) : 0;
@@ -3223,14 +3213,14 @@ function saveSch() {
   const result = $('s-result').value.trim();
   const custId = resolveCust($('s-cust').value);
   const rep = resolveRep($('s-rep').value);
-  const p = prodByCode(resolveProd($('s-interest').value));
+  const p = prodByCode($('s-interest').value);
   /* 결과를 적었으면 완료로 본다 (다녀와서 기록한 것이므로) */
   const done = $('s-done').checked || !!result;
   const row = {
     date: $('s-date').value || today(), time: $('s-time').value, custId,
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
-    interest: p ? p.name : trimv($('s-interest').value),
+    interest: p ? p.name : '',
     nextAction: trimv($('s-next').value), nextActionDate: $('s-next-date').value
   };
   const id = $('s-id').value;
@@ -3360,10 +3350,13 @@ function openQuoteModal(id) {
 }
 function addQuoteItem(it) {
   it = it || { code: '', qty: 1, price: 0, disc: 0 };
+  const curCode = it.code || (prodByName(it.name || '') || {}).code || '';
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm qi-name" list="dl-prod" autocomplete="off"
-      placeholder="제품명 입력 · 선택" value="${esc(it.name || (prodByCode(it.code) || {}).name || '')}" oninput="qiProd(this)"></td>
+    <td><select class="form-select form-select-sm qi-name" onchange="qiProd(this)">
+      <option value="">제품 선택</option>
+      ${DB.products.map(p => `<option value="${esc(p.code)}"${p.code === curCode ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select></td>
     <td><input type="number" class="form-control form-control-sm qi-qty" min="1" value="${num(it.qty) || 1}" oninput="quoteRecalc()"></td>
     <td><input type="text" class="form-control form-control-sm qi-price" inputmode="numeric" value="${comma(it.price)}" oninput="commaInput(this);quoteRecalc()"></td>
     <td><input type="number" class="form-control form-control-sm qi-disc" min="0" max="100" value="${num(it.disc)}" oninput="quoteRecalc()"></td>
@@ -3373,16 +3366,16 @@ function addQuoteItem(it) {
   quoteRecalc();
 }
 function qiProd(el) {
-  const p = prodByName(trimv(el.value));
+  const p = prodByCode(el.value);
   const tr = el.closest('tr');
   if (p) tr.querySelector('.qi-price').value = comma(p.price);
   quoteRecalc();
 }
 function readQuoteItems() {
   return [...$('q-items').querySelectorAll('tr')].map(tr => {
-    const nm = trimv(tr.querySelector('.qi-name').value);
-    const p = prodByName(nm);
-    return { code: p ? p.code : '', name: nm, qty: num(tr.querySelector('.qi-qty').value) || 1,
+    const code = tr.querySelector('.qi-name').value;
+    const p = prodByCode(code);
+    return { code: p ? p.code : '', name: p ? p.name : '', qty: num(tr.querySelector('.qi-qty').value) || 1,
       price: num(tr.querySelector('.qi-price').value), disc: num(tr.querySelector('.qi-disc').value) };
   }).filter(it => it.name);
 }
@@ -3416,7 +3409,6 @@ function saveQuote(doPrint) {
   const items = readQuoteItems();
   if (!trimv($('q-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!items.length) return alert('품목을 1개 이상 추가해주세요.');
-  items.forEach(it => { if (!it.code) it.code = resolveProd(it.name); });
   const row = { custId: resolveCust($('q-cust').value), date: $('q-date').value || today(), validDays: num($('q-valid').value) || 30,
     rep: resolveRep($('q-rep').value), items, memo: $('q-memo').value.trim(), status: $('q-status-in').value };
   const id = $('q-id').value;
@@ -4096,7 +4088,7 @@ function openProspectModal(id) {
   $('pr-addr').value = p ? (p.addr || '') : '';
   $('pr-addr2').value = p ? (p.addr2 || '') : '';
   $('pr-status-in').value = p ? (p.status || '신규') : '신규';
-  $('pr-interest').value = p ? (p.interest || '') : '';
+  $('pr-interest').value = p && p.interest ? ((prodByName(p.interest) || {}).code || '') : '';
   $('pr-next').value = p ? (p.nextAction || '') : '';
   $('pr-next-date').value = p ? (p.nextActionDate || '') : '';
   $('pr-memo').value = p ? (p.memo || '') : '';
@@ -4110,7 +4102,7 @@ function saveProspect() {
     sido: $('pr-sido').value.trim(), gugun: $('pr-gugun').value.trim(),
     rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(),
     zip: $('pr-zip').value.trim(), addr: $('pr-addr').value.trim(), addr2: $('pr-addr2').value.trim(),
-    status: $('pr-status-in').value, interest: $('pr-interest').value.trim(),
+    status: $('pr-status-in').value, interest: (prodByCode($('pr-interest').value) || {}).name || '',
     contacts: readContacts('pr-contacts'),
     nextAction: $('pr-next').value.trim(), nextActionDate: $('pr-next-date').value, memo: $('pr-memo').value.trim(),
     updatedAt: today(), updatedBy: curUserName() };
@@ -4213,7 +4205,7 @@ function openEquipModal(id) {
   $('e-del-btn').style.display = e ? 'inline-block' : 'none';
   $('e-id').value = e ? e.id : '';
   $('e-cust').value = e ? custName(e.custId) : '';
-  $('e-model').value = e ? (e.model || '') : '';
+  $('e-model').value = e ? (e.modelCode || '') : '';
   $('e-serial').value = e ? (e.serial || '') : '';
   $('e-install').value = e ? (e.installDate || '') : today();
   $('e-warranty-end').value = e ? (e.warrantyEnd || '') : '';
@@ -4227,7 +4219,7 @@ function openEquipModal(id) {
 }
 function equipModelChange() { calcWarranty(); }
 function calcWarranty() {
-  const p = prodByName(trimv($('e-model').value)), inst = $('e-install').value;
+  const p = prodByCode($('e-model').value), inst = $('e-install').value;
   if (p && inst && p.warranty) $('e-warranty-end').value = addMonths(inst, p.warranty);
 }
 let AS_TMP = [];
@@ -4251,10 +4243,10 @@ function addAS() {
 function removeAS(i) { AS_TMP.splice(i, 1); renderASList(AS_TMP); }
 function saveEquip() {
   if (!trimv($('e-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
-  if (!trimv($('e-model').value)) return alert('모델을 입력하거나 선택해주세요.');
-  const code = resolveProd($('e-model').value, '장비');
+  if (!$('e-model').value) return alert('모델을 선택해주세요.');
+  const code = $('e-model').value;
   const p = prodByCode(code);
-  const row = { custId: resolveCust($('e-cust').value), modelCode: code, model: p ? p.name : trimv($('e-model').value),
+  const row = { custId: resolveCust($('e-cust').value), modelCode: code, model: p ? p.name : '',
     serial: $('e-serial').value.trim(), installDate: $('e-install').value, warrantyEnd: $('e-warranty-end').value,
     status: $('e-status-in').value, rep: resolveRep($('e-rep').value), contract: $('e-contract').value,
     memo: $('e-memo').value.trim(), as: AS_TMP.slice() };
