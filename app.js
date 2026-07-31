@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731f';
+const APP_VERSION = '20260731g';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -1074,7 +1074,7 @@ function drillLogs(title, sub, list) {
   list = (list || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const rows = list.map(l => '<tr style="cursor:pointer" onclick="drillGo(function(){openLogModal(\'' + l.id + '\')})">'
     + '<td>' + fmtDate(l.date) + '</td>'
-    + '<td class="fw-bold">' + esc(custName(l.custId)) + '</td>'
+    + '<td class="fw-bold">' + esc(logCustLabel(l)) + '</td>'
     + '<td><span class="badge" style="background:#f1f5f9;color:#475569">' + esc(l.type) + '</span></td>'
     + '<td style="max-width:330px;white-space:normal">' + esc(l.content) + '</td>'
     + '<td style="font-size:12px;color:#64748b">' + esc(l.interest || '-') + '</td>'
@@ -2716,13 +2716,23 @@ function deleteDealById(id) {
 }
 
 /* ── 상담일지 ── */
+/* 상담일지의 고객사 칸 표시 — 고객사 상담은 custId, 타겟병원 상담은 prospectId 를 쓴다 */
+function logCustLabel(l) {
+  if (l.custId) return custName(l.custId);
+  if (l.prospectId) { const p = prospectById(l.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
+  return '-';
+}
+function logGoDetail(l) {
+  if (l.custId) openCustDetail(l.custId);
+  else if (l.prospectId) openProspectModal(l.prospectId);
+}
 function renderLogs() {
   const q = ($('log-search').value || '').trim().toLowerCase();
-  const rows = DB.logs.filter(l => !q || (custName(l.custId) + ' ' + l.content + ' ' + (l.rep || '') + ' ' + (l.type || '')).toLowerCase().includes(q))
+  const rows = DB.logs.filter(l => !q || (logCustLabel(l) + ' ' + l.content + ' ' + (l.rep || '') + ' ' + (l.type || '')).toLowerCase().includes(q))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   $('log-tbody').innerHTML = rows.length ? rows.map(l => `<tr>
     <td>${fmtDate(l.date)}</td>
-    <td><a class="cust-link" onclick="openCustDetail('${l.custId}')">${esc(custName(l.custId))}</a></td>
+    <td><a class="cust-link" onclick="logGoDetail(DB.logs.find(function(x){return x.id==='${l.id}'}))">${esc(logCustLabel(l))}</a></td>
     <td><span class="badge" style="background:#f1f5f9;color:#475569">${esc(l.type)}</span></td>
     <td style="max-width:340px;white-space:normal">${esc(l.content)}</td>
     <td style="font-size:12px;color:#64748b">${esc(l.interest || '-')}</td>
@@ -2731,14 +2741,18 @@ function renderLogs() {
     <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openLogModal('${l.id}')"><i class="bi bi-pencil"></i></button></td>
   </tr>`).join('') : `<tr><td colspan="8" class="table-empty">상담일지가 없습니다</td></tr>`;
 }
-function openLogModal(id, custId) {
+function openLogModal(id, custId, forceProspectId) {
   refreshSelects();
   const l = id ? DB.logs.find(x => x.id === id) : null;
+  const prospectId = forceProspectId || (l && l.prospectId) || '';
+  const pr = prospectId ? prospectById(prospectId) : null;
   $('log-modal-title').textContent = l ? '상담일지 수정' : '상담일지 작성';
   $('l-del-btn').style.display = l ? 'inline-block' : 'none';
   $('l-id').value = l ? l.id : '';
+  $('l-prospect-id').value = pr ? prospectId : '';
   $('l-date').value = l ? l.date : today();
-  $('l-cust').value = l ? custName(l.custId) : (custId ? custName(custId) : '');
+  $('l-cust').value = pr ? pr.name + ' (타겟병원)' : (l ? custName(l.custId) : (custId ? custName(custId) : ''));
+  $('l-cust').readOnly = !!pr;
   $('l-type').value = l ? l.type : '방문';
   $('l-interest').value = l && l.interest ? ((prodByName(l.interest) || {}).code || '') : '';
   $('l-rep').value = l ? (l.rep || '') : '';
@@ -2748,10 +2762,12 @@ function openLogModal(id, custId) {
   new bootstrap.Modal($('logModal')).show();
 }
 function saveLog() {
-  if (!trimv($('l-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
+  const prospectId = $('l-prospect-id').value;
+  if (!prospectId && !trimv($('l-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!$('l-content').value.trim()) return alert('상담 내용을 입력해주세요.');
   const p = prodByCode($('l-interest').value);
-  const row = { custId: resolveCust($('l-cust').value), date: $('l-date').value || today(), type: $('l-type').value,
+  const row = { custId: prospectId ? '' : resolveCust($('l-cust').value), prospectId,
+    date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value };
   const id = $('l-id').value;
@@ -3041,7 +3057,7 @@ function renderDaySum() {
           + (s.done ? (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : ' <span style="color:#15803d">(완료)</span>')
                     : ' <span style="color:#ea580c">(대기)</span>') + '</div>').join('') : '')
       + (ll.length ? ll.map(l => '<div style="font-size:12px;padding:3px 0;color:#64748b">'
-          + '<i class="bi bi-journal-text me-1"></i>' + esc(custName(l.custId)) + ' — ' + esc(l.content) + '</div>').join('') : '')
+          + '<i class="bi bi-journal-text me-1"></i>' + esc(logCustLabel(l)) + ' — ' + esc(l.content) + '</div>').join('') : '')
       + '</div>';
   }).join('');
   $('daysum-body').innerHTML = '<div class="cdud" style="padding:16px 20px;margin:0 0 14px">'
@@ -3250,10 +3266,10 @@ function saveSch() {
     if (pr) { pr.status = '일정등록완료'; pr.updatedAt = today(); }
   }
 
-  /* 결과를 상담일지로도 남긴다 → 고객사 활동 타임라인에 축적 */
-  if (result && custId && $('s-mklog').checked) {
+  /* 결과를 상담일지로도 남긴다 → 고객사(또는 타겟병원) 활동 타임라인에 축적 */
+  if (result && (custId || prospectId) && $('s-mklog').checked) {
     const logRow = {
-      custId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
+      custId, prospectId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
       interest: row.interest, nextAction: row.nextAction, nextActionDate: row.nextActionDate, rep
     };
@@ -3268,7 +3284,7 @@ function saveSch() {
   /* 다음 액션을 후속 일정으로 예약 */
   if ($('s-mksch').checked && row.nextAction) {
     DB.schedules.push({
-      id: uid(), date: row.nextActionDate || today(), time: '', custId,
+      id: uid(), date: row.nextActionDate || today(), time: '', custId, prospectId,
       type: cur.type, title: row.nextAction, rep, done: false, result: '', grade: 0,
       interest: row.interest, nextAction: '', nextActionDate: ''
     });
@@ -3277,7 +3293,7 @@ function saveSch() {
   bootstrap.Modal.getInstance($('schModal')).hide();
   const msgs = [];
   if (result) msgs.push('결과 기록');
-  if (result && custId && $('s-mklog').checked) msgs.push('상담일지 생성');
+  if (result && (custId || prospectId) && $('s-mklog').checked) msgs.push('상담일지 생성');
   if ($('s-mksch').checked && row.nextAction) msgs.push('후속 일정 등록');
   if (msgs.length) toast(msgs.join(' · ') + ' 완료');
   RENDER[CUR_PAGE]();
@@ -4562,7 +4578,7 @@ function exportAllExcel() {
     고객사: custName(d.custId), 제품: d.product, 금액: num(d.amount), 단계: d.stage, 확률: num(d.prob),
     예상수주일: d.expectedDate, 담당: d.rep, 다음액션: d.nextAction, 액션예정일: d.nextActionDate, 메모: d.memo }))), '딜');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.logs.map(l => ({
-    일자: l.date, 고객사: custName(l.custId), 유형: l.type, 내용: l.content,
+    일자: l.date, 고객사: logCustLabel(l), 유형: l.type, 내용: l.content,
     관심제품: l.interest, 다음액션: l.nextAction, 담당: l.rep }))), '상담일지');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.quotes.map(q => ({
     견적번호: q.no, 고객사: custName(q.custId), 견적일: q.date, 담당: q.rep,
