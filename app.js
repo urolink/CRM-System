@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731a';
+const APP_VERSION = '20260731b';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3628,7 +3628,8 @@ function renderCustomers() {
 function setCTag(t) { C_TAG = t; renderCustomers(); }
 /* ══ 주소 검색 (다음 우편번호 서비스) ══
    검색 결과에서 우편번호·기본주소를 채우고 시/도·시/군/구를 자동 분해한다. */
-function searchAddress() {
+function searchAddress(prefix) {
+  prefix = prefix || 'c';
   if (typeof daum === 'undefined' || !daum.Postcode) {
     alert('주소 검색 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해주세요.');
     return;
@@ -3636,11 +3637,11 @@ function searchAddress() {
   new daum.Postcode({
     oncomplete: function (d) {
       const base = d.roadAddress || d.jibunAddress || d.address || '';
-      $('c-zip').value = d.zonecode || '';
-      $('c-addr').value = base;
-      $('c-sido').value = d.sido || '';
-      $('c-gugun').value = d.sigungu || '';
-      $('c-addr2').focus();
+      $(prefix + '-zip').value = d.zonecode || '';
+      $(prefix + '-addr').value = base;
+      $(prefix + '-sido').value = d.sido || '';
+      $(prefix + '-gugun').value = d.sigungu || '';
+      $(prefix + '-addr2').focus();
     }
   }).open();
 }
@@ -4087,7 +4088,9 @@ function openProspectModal(id) {
   $('pr-gugun').value = p ? (p.gugun || '') : '';
   $('pr-rep-in').value = p ? (p.rep || '') : '';
   $('pr-phone').value = p ? (p.phone || '') : '';
+  $('pr-zip').value = p ? (p.zip || '') : '';
   $('pr-addr').value = p ? (p.addr || '') : '';
+  $('pr-addr2').value = p ? (p.addr2 || '') : '';
   $('pr-status-in').value = p ? (p.status || '신규') : '신규';
   $('pr-interest').value = p ? (p.interest || '') : '';
   $('pr-next').value = p ? (p.nextAction || '') : '';
@@ -4100,7 +4103,8 @@ function saveProspect() {
   if (!name) return alert('병원명을 입력해주세요.');
   const row = { name, type: $('pr-type').value, dept: $('pr-dept').value.trim(),
     sido: $('pr-sido').value.trim(), gugun: $('pr-gugun').value.trim(),
-    rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(), addr: $('pr-addr').value.trim(),
+    rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(),
+    zip: $('pr-zip').value.trim(), addr: $('pr-addr').value.trim(), addr2: $('pr-addr2').value.trim(),
     status: $('pr-status-in').value, interest: $('pr-interest').value.trim(),
     nextAction: $('pr-next').value.trim(), nextActionDate: $('pr-next-date').value, memo: $('pr-memo').value.trim(),
     updatedAt: today(), updatedBy: curUserName() };
@@ -4125,7 +4129,7 @@ function convertProspect(id) {
   if (!confirm(`'${p.name}'을(를) 고객사로 전환할까요?\n타겟병원 목록에서는 사라집니다.`)) return;
   DB.customers.push({ id: uid(), name: p.name, type: p.type || '의원', doctor: '', dept: p.dept || '비뇨의학과',
     grade: 'C', sido: p.sido || '', gugun: p.gugun || '', rep: p.rep || '', phone: p.phone || '',
-    addr: p.addr || '', tags: [], memo: p.memo || '', createdAt: today() });
+    zip: p.zip || '', addr: p.addr || '', addr2: p.addr2 || '', tags: [], memo: p.memo || '', createdAt: today() });
   DB.prospects = DB.prospects.filter(x => x.id !== id);
   save();
   const m = bootstrap.Modal.getInstance($('prospectModal'));
