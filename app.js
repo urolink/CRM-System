@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731m';
+const APP_VERSION = '20260731n';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4197,7 +4197,7 @@ function renderProspects() {
   const tb = $('prospect-tbody');
   if (!tb) return;
   tb.innerHTML = rows.length ? rows.map(p => `<tr>
-    <td><a class="cust-link" onclick="openProspectModal('${p.id}')">${esc(p.name)}</a></td>
+    <td><a class="cust-link" onclick="openProspectDetail('${p.id}')">${esc(p.name)}</a></td>
     <td style="font-size:12px;color:#64748b">${esc(p.type || '-')}</td>
     <td>${esc(p.dept || '-')}</td>
     <td style="font-size:12px">${esc((p.sido || '') + ' ' + (p.gugun || '')) || '-'}</td>
@@ -4212,6 +4212,35 @@ function renderProspects() {
   </tr>`).join('') : `<tr><td colspan="9" class="table-empty">타겟병원이 없습니다</td></tr>`;
 }
 
+let PR_DETAIL_ID = null;
+/* 타겟병원 상세(읽기 전용) — 수정은 목록의 연필 버튼(openProspectModal)에서만 한다 */
+function openProspectDetail(id) {
+  const p = prospectById(id); if (!p) return;
+  PR_DETAIL_ID = id;
+  $('prd-name').innerHTML = esc(p.name) + ` <span class="badge" style="background:${PROSPECT_STATUS_COLOR[p.status] || '#94a3b8'}">${esc(p.status || '신규')}</span>`;
+  $('prd-sub').textContent = [p.type, p.dept, (p.sido || '') + ' ' + (p.gugun || ''), '담당 ' + (p.rep || '미지정')].filter(x => String(x).trim()).join(' · ');
+  const rows = [['구분', p.type], ['진료과', p.dept], ['지역', (p.sido || '') + ' ' + (p.gugun || '')],
+    ['담당자', p.rep], ['연락처', p.phone],
+    ['주소', ((p.zip ? '(' + p.zip + ') ' : '') + (p.addr || '') + ' ' + (p.addr2 || '')).trim()],
+    ['관심장비 / 제품', p.interest],
+    ['다음 액션', p.nextAction ? p.nextAction + (p.nextActionDate ? ' · ' + fmtDate(p.nextActionDate) : '') : ''],
+    ['등록일', fmtDate(p.createdAt)]];
+  $('prd-body').innerHTML = `<div class="row g-0" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">
+      ${rows.map(([k, v]) => `<div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
+        <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">${esc(k)}</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${esc(v || '-')}</div></div>`).join('')}
+      <div class="col-12" style="display:flex">
+        <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(p.memo || '-')}</div></div></div>`
+    + ((p.contacts || []).length ? `<div class="wt-st mt-3"><i class="bi bi-people me-1"></i>연락처 ${p.contacts.length}명</div>
+      <div class="ct-list">${p.contacts.map(x => `<div class="ct-item">
+        <span class="ct-role">${esc(x.role || '기타')}</span>
+        <b style="min-width:70px">${esc(x.name || '-')}</b>
+        <span style="color:#334155">${esc(x.phone || '')}</span>
+        <span style="color:#94a3b8;margin-left:auto">${esc(x.memo || '')}</span></div>`).join('')}</div>` : '')
+    + (p.updatedAt ? `<div style="font-size:11px;color:#94a3b8;margin-top:10px;text-align:right">최종 수정 ${fmtDate(p.updatedAt)}${p.updatedBy ? ' · ' + esc(p.updatedBy) : ''}</div>` : '');
+  new bootstrap.Modal($('prospectDetailModal')).show();
+}
 function openProspectModal(id) {
   refreshSelects();
   fillSelect($('pr-status-in'), PROSPECT_STATUS);
@@ -4274,8 +4303,10 @@ function convertProspect(id) {
     tags: [], memo: p.memo || '', createdAt: today() });
   DB.prospects = DB.prospects.filter(x => x.id !== id);
   save();
-  const m = bootstrap.Modal.getInstance($('prospectModal'));
-  if (m) m.hide();
+  [$('prospectModal'), $('prospectDetailModal')].forEach(el => {
+    const m = bootstrap.Modal.getInstance(el);
+    if (m) m.hide();
+  });
   refreshSelects();
   renderProspects();
   toast('고객사로 전환했습니다');
