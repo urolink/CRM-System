@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731k';
+const APP_VERSION = '20260731l';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3624,8 +3624,9 @@ function printQuote(id) {
 function logReportHTML(l) {
   const row = (k, v) => '<tr><th>' + esc(k) + '</th><td>' + esc(v || '-') + '</td></tr>';
   const wideRow = (k, v) => '<tr><th>' + esc(k) + '</th><td colspan="3">' + esc(v || '-') + '</td></tr>';
+  const logoUrl = new URL('logo.png', location.href).href;
   return '<div class="rp">'
-    + '<div class="rp-title">영업 활동 보고서</div>'
+    + '<div class="rp-head"><img src="' + esc(logoUrl) + '" class="rp-logo" alt="UroLink"><div class="rp-title">영업 활동 보고서</div></div>'
     + '<div class="rp-sec">1. 방문 정보</div>'
     + '<table class="rp-tbl"><tbody>'
       + '<tr><th>병원명</th><td>' + esc(logCustLabel(l)) + '</td><th>방문일</th><td>' + esc(fmtDate(l.date)) + '</td></tr>'
@@ -3652,7 +3653,9 @@ const REPORT_CSS = `
   body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff;color:#182230;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   @page{size:A4;margin:0}
   .rp{padding:16mm 14mm;font-size:12px;letter-spacing:-.01em}
-  .rp-title{font-size:24px;font-weight:800;letter-spacing:.2em;text-align:center;margin-bottom:22px;color:#16324f}
+  .rp-head{display:flex;align-items:center;gap:16px;padding-bottom:14px;margin-bottom:20px;border-bottom:2px solid #16324f}
+  .rp-logo{height:32px;width:auto}
+  .rp-title{font-size:22px;font-weight:800;letter-spacing:.12em;color:#16324f;margin-left:auto}
   .rp-sec{font-size:14px;font-weight:800;color:#1f1f1d;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #16324f}
   .rp-tbl{width:100%;border-collapse:collapse;margin-bottom:4px}
   .rp-tbl th{width:120px;background:#f5f8fa;border:1px solid #dbe3ec;padding:8px 10px;font-size:11.5px;font-weight:700;color:#475569;text-align:left;white-space:nowrap}
