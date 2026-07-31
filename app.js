@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731b';
+const APP_VERSION = '20260731c';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3648,8 +3648,8 @@ function searchAddress(prefix) {
 
 /* ══ 연락처 여러 명 ══ */
 const CT_ROLES = ['원장', '부원장', '실장', '간호', '구매', '행정', '기타'];
-function contactRowHtml(c) {
-  c = c || {};
+function contactRowHtml(c, boxId) {
+  c = c || {}; boxId = boxId || 'c-contacts';
   return '<div class="ct-row">'
     + '<select class="form-select form-select-sm ct-role">'
     + CT_ROLES.map(r => '<option' + (c.role === r ? ' selected' : '') + '>' + esc(r) + '</option>').join('')
@@ -3657,31 +3657,35 @@ function contactRowHtml(c) {
     + '<input type="text" class="form-control form-control-sm ct-name" placeholder="이름" value="' + esc(c.name || '') + '">'
     + '<input type="text" class="form-control form-control-sm ct-phone" placeholder="연락처" value="' + esc(c.phone || '') + '">'
     + '<input type="text" class="form-control form-control-sm ct-memo" placeholder="메모 (선호 시간 등)" value="' + esc(c.memo || '') + '">'
-    + '<button class="btn-x" title="삭제" onclick="this.closest(\'.ct-row\').remove();ctEmptyCheck()"><i class="bi bi-x-lg"></i></button>'
+    + '<button class="btn-x" title="삭제" onclick="this.closest(\'.ct-row\').remove();ctEmptyCheck(\'' + boxId + '\')"><i class="bi bi-x-lg"></i></button>'
     + '</div>';
 }
-function renderContacts(list) {
-  const box = $('c-contacts');
+function renderContacts(list, boxId) {
+  boxId = boxId || 'c-contacts';
+  const box = $(boxId);
   if (!box) return;
   const arr = (list || []).filter(Boolean);
-  box.innerHTML = arr.length ? arr.map(contactRowHtml).join('')
+  box.innerHTML = arr.length ? arr.map(c => contactRowHtml(c, boxId)).join('')
     : '<div class="ct-empty">등록된 연락처가 없습니다. <b>연락처 추가</b>로 원장·실장 등을 넣어주세요.</div>';
 }
-function addContactRow() {
-  const box = $('c-contacts');
+function addContactRow(boxId) {
+  boxId = boxId || 'c-contacts';
+  const box = $(boxId);
   const empty = box.querySelector('.ct-empty');
   if (empty) empty.remove();
-  box.insertAdjacentHTML('beforeend', contactRowHtml({}));
+  box.insertAdjacentHTML('beforeend', contactRowHtml({}, boxId));
   const rows = box.querySelectorAll('.ct-row');
   const last = rows[rows.length - 1];
   if (last) last.querySelector('.ct-name').focus();
 }
-function ctEmptyCheck() {
-  const box = $('c-contacts');
-  if (box && !box.querySelector('.ct-row')) renderContacts([]);
+function ctEmptyCheck(boxId) {
+  boxId = boxId || 'c-contacts';
+  const box = $(boxId);
+  if (box && !box.querySelector('.ct-row')) renderContacts([], boxId);
 }
-function readContacts() {
-  return [...$('c-contacts').querySelectorAll('.ct-row')].map(r => ({
+function readContacts(boxId) {
+  boxId = boxId || 'c-contacts';
+  return [...$(boxId).querySelectorAll('.ct-row')].map(r => ({
     role: r.querySelector('.ct-role').value,
     name: trimv(r.querySelector('.ct-name').value),
     phone: trimv(r.querySelector('.ct-phone').value),
@@ -4096,6 +4100,7 @@ function openProspectModal(id) {
   $('pr-next').value = p ? (p.nextAction || '') : '';
   $('pr-next-date').value = p ? (p.nextActionDate || '') : '';
   $('pr-memo').value = p ? (p.memo || '') : '';
+  renderContacts(p ? p.contacts : [], 'pr-contacts');
   new bootstrap.Modal($('prospectModal')).show();
 }
 function saveProspect() {
@@ -4106,6 +4111,7 @@ function saveProspect() {
     rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(),
     zip: $('pr-zip').value.trim(), addr: $('pr-addr').value.trim(), addr2: $('pr-addr2').value.trim(),
     status: $('pr-status-in').value, interest: $('pr-interest').value.trim(),
+    contacts: readContacts('pr-contacts'),
     nextAction: $('pr-next').value.trim(), nextActionDate: $('pr-next-date').value, memo: $('pr-memo').value.trim(),
     updatedAt: today(), updatedBy: curUserName() };
   const id = $('pr-id').value;
@@ -4129,7 +4135,8 @@ function convertProspect(id) {
   if (!confirm(`'${p.name}'을(를) 고객사로 전환할까요?\n타겟병원 목록에서는 사라집니다.`)) return;
   DB.customers.push({ id: uid(), name: p.name, type: p.type || '의원', doctor: '', dept: p.dept || '비뇨의학과',
     grade: 'C', sido: p.sido || '', gugun: p.gugun || '', rep: p.rep || '', phone: p.phone || '',
-    zip: p.zip || '', addr: p.addr || '', addr2: p.addr2 || '', tags: [], memo: p.memo || '', createdAt: today() });
+    zip: p.zip || '', addr: p.addr || '', addr2: p.addr2 || '', contacts: p.contacts || [],
+    tags: [], memo: p.memo || '', createdAt: today() });
   DB.prospects = DB.prospects.filter(x => x.id !== id);
   save();
   const m = bootstrap.Modal.getInstance($('prospectModal'));
