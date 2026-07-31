@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731e';
+const APP_VERSION = '20260731f';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -513,11 +513,11 @@ function alertItems() {
   const out = [], td = today();
   DB.schedules.filter(s => s.date === td && !s.done).forEach(s => out.push({
     sec: '오늘 일정', ic: 'bi-calendar-event', c: '#0e7490',
-    t: (s.custId ? custName(s.custId) : '내부') + ' · ' + s.type,
+    t: (schCustLabel(s)) + ' · ' + s.type,
     sub: (s.time ? s.time + ' ' : '') + s.title, go: "showPage('schedule')", urgent: true }));
   DB.schedules.filter(s => !s.done && s.date < td).forEach(s => out.push({
     sec: '놓친 일정', ic: 'bi-exclamation-circle', c: '#dc2626',
-    t: (s.custId ? custName(s.custId) : '내부') + ' · ' + fmtDate(s.date).slice(5),
+    t: (schCustLabel(s)) + ' · ' + fmtDate(s.date).slice(5),
     sub: s.title + ' — 결과 미입력', go: "showPage('schedule');schOverdue()", urgent: true }));
   DB.deals.filter(d => OPEN_STAGES.includes(d.stage) && d.nextAction).forEach(d => {
     const n = dDays(d.nextActionDate || d.expectedDate);
@@ -845,7 +845,7 @@ function renderDashboard() {
   DB.deals.filter(d => OPEN_STAGES.includes(d.stage) && d.nextAction).forEach(d =>
     acts.push({ kind: 'deal', id: d.id, date: d.nextActionDate || d.expectedDate, cust: custName(d.custId), text: d.nextAction, rep: d.rep, amount: d.amount }));
   DB.schedules.filter(s => !s.done).forEach(s =>
-    acts.push({ kind: 'sch', id: s.id, date: s.date, cust: s.custId ? custName(s.custId) : '내부', text: s.title, rep: s.rep, type: s.type }));
+    acts.push({ kind: 'sch', id: s.id, date: s.date, cust: schCustLabel(s), text: s.title, rep: s.rep, type: s.type }));
   acts.sort((x, y) => String(x.date).localeCompare(String(y.date)));
   const od = acts.filter(x => (dDays(x.date) ?? 99) < 0).length;
   const td = acts.filter(x => dDays(x.date) === 0).length;
@@ -1044,7 +1044,7 @@ function drillSch(title, sub, list) {
   const rows = list.map(x => '<tr style="cursor:pointer" onclick="drillGo(function(){openSchModal(\'' + x.id + '\')})">'
     + '<td>' + fmtDate(x.date) + '</td><td>' + esc(x.time || '-') + '</td>'
     + '<td><span class="sc-type" style="background:' + schCol(x.type) + '1a;color:' + schCol(x.type) + '">' + esc(x.type) + '</span></td>'
-    + '<td class="fw-bold">' + esc(x.custId ? custName(x.custId) : '내부') + '</td>'
+    + '<td class="fw-bold">' + esc(schCustLabel(x)) + '</td>'
     + '<td style="max-width:250px">' + esc(x.title) + '</td>'
     + '<td>' + esc(x.rep || '-') + '</td>'
     + '<td>' + (x.done ? '<span class="sc-type" style="background:#f0fdf4;color:#15803d">완료</span>'
@@ -2776,6 +2776,12 @@ let SCH_VIEW = 'week';   /* today | week | month */
 let SCH_REF = null;      /* 기준일(null = 오늘) */
 
 function schToday() { return today(); }
+/* 일정의 고객사 칸 표시 — 고객사 딜은 custId, 타겟병원 방문 예정은 prospectId 를 쓴다 */
+function schCustLabel(s) {
+  if (s.custId) return custName(s.custId);
+  if (s.prospectId) { const p = prospectById(s.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
+  return '내부';
+}
 function schWeekRange(ref) {
   const base = parseD(ref || today()) || new Date();
   const dow = (base.getDay() + 6) % 7;              /* 월요일 시작 */
@@ -2875,7 +2881,7 @@ function schMiniCard(s) {
     + ' onclick="event.stopPropagation();openSchModal(&#39;' + s.id + '&#39;)">'
     + '<div class="m-top"><span class="m-st" style="color:' + stColor + '">' + stText + '</span>'
       + (s.rep ? '<span class="m-rep">' + esc(s.rep) + '</span>' : '') + '</div>'
-    + '<div class="m-c">' + esc(s.custId ? custName(s.custId) : '내부') + '</div>'
+    + '<div class="m-c">' + esc(schCustLabel(s)) + '</div>'
     + '<div class="m-s">' + (s.time ? esc(s.time) + ' · ' : '') + esc(s.type)
       + (s.grade ? ' · ' + esc(gradeLabel(s.grade)) : '') + '</div>'
     + (done ? (s.result ? '<div class="m-s" style="color:#15803d;margin-top:2px">' + esc(s.result) + '</div>' : '')
@@ -2927,7 +2933,7 @@ function schItemRow(s) {
     + '<span style="width:44px;flex-shrink:0;color:#64748b;font-weight:600">' + esc(s.time || '-') + '</span>'
     + '<span class="sc-type" style="background:' + c + '1a;color:' + c + '">' + esc(s.type) + '</span>'
     + '<span style="width:140px;flex-shrink:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-    + esc(s.custId ? custName(s.custId) : '내부') + '</span>'
+    + esc(schCustLabel(s)) + '</span>'
     + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(s.title)
     + (s.grade ? ' <span class="sc-type" style="background:#f1f5f9;color:#475569">' + esc(gradeLabel(s.grade)) + '</span>' : '')
     + (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : '') + '</span>'
@@ -2960,7 +2966,7 @@ function schMonthView(items) {
       + '<div class="d ' + (dow === 6 ? 'sun' : dow === 5 ? 'sat' : '') + '">' + d + '</div>'
       + its.slice(0, 3).map(s => '<div class="cal-ev' + (s.done ? ' done' : '') + '" style="background:' + schCol(s.type)
         + '1f;color:' + schCol(s.type) + '">' + (s.done ? '\u2713 ' : '') + (s.time ? esc(s.time) + ' ' : '')
-        + esc(s.custId ? custName(s.custId) : s.title) + '</div>').join('')
+        + esc(s.custId || s.prospectId ? schCustLabel(s) : s.title) + '</div>').join('')
       + (its.length > 3 ? '<div class="cal-more">+' + (its.length - 3) + '건</div>' : '') + '</div>';
   });
   return '<div id="cal-scroll"><div class="cal-grid" id="cal-grid">' + html + '</div></div>';
@@ -3031,7 +3037,7 @@ function renderDaySum() {
       + ' <span style="font-size:11px;font-weight:500;color:#64748b">일정 ' + ss.length + ' · 상담 ' + ll.length + '</span></div>'
       + (ss.length ? ss.map(s => '<div style="font-size:12px;padding:3px 0;color:#334155">'
           + '<span style="color:' + schCol(s.type) + ';font-weight:700">[' + esc(s.type) + ']</span> '
-          + esc(s.custId ? custName(s.custId) : '내부') + ' — ' + esc(s.title)
+          + esc(schCustLabel(s)) + ' — ' + esc(s.title)
           + (s.done ? (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : ' <span style="color:#15803d">(완료)</span>')
                     : ' <span style="color:#ea580c">(대기)</span>') + '</div>').join('') : '')
       + (ll.length ? ll.map(l => '<div style="font-size:12px;padding:3px 0;color:#64748b">'
@@ -3174,18 +3180,22 @@ function schGoCustDetail() {
   setTimeout(() => openCustDetail(c.id), 200);
 }
 
-function openSchModal(id, preDate) {
+function openSchModal(id, preDate, forceProspectId) {
   refreshSelects();
   const s = id ? DB.schedules.find(x => x.id === id) : null;
-  $('sch-modal-title').textContent = s ? '일정 수정' : '일정 추가';
+  const prospectId = forceProspectId || (s && s.prospectId) || '';
+  const pr = prospectId ? prospectById(prospectId) : null;
+  $('sch-modal-title').textContent = pr ? '타겟병원 일정 등록' : (s ? '일정 수정' : '일정 추가');
   $('s-del-btn').style.display = s ? 'inline-block' : 'none';
   $('s-id').value = s ? s.id : '';
+  $('s-prospect-id').value = pr ? prospectId : '';
   $('s-date').value = s ? s.date : (preDate || today());
   $('s-time').value = s ? (s.time || '') : '';
-  $('s-cust').value = s ? (s.custId ? custName(s.custId) : '') : '';
+  $('s-cust').value = pr ? pr.name + ' (타겟병원)' : (s ? (s.custId ? custName(s.custId) : '') : '');
+  $('s-cust').readOnly = !!pr;
   $('s-type').value = s ? s.type : '방문';
-  $('s-rep').value = s ? (s.rep || '') : '';
-  $('s-title').value = s ? s.title : '';
+  $('s-rep').value = s ? (s.rep || '') : (pr ? (pr.rep || '') : '');
+  $('s-title').value = s ? s.title : (pr ? (pr.name + ' 방문') : '');
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
   $('s-interest').value = s && s.interest ? ((prodByName(s.interest) || {}).code || '') : '';
@@ -3208,16 +3218,24 @@ function openSchModal(id, preDate) {
   schCustPeek();
   new bootstrap.Modal($('schModal')).show();
 }
+/* 타겟병원 목록의 '일정 등록' 아이콘 — 고객사로 전환하지 않고, 방문 예정 일정만 잡는다.
+   타겟병원은 목록에 그대로 남고, 일정이 저장되면 상태만 '일정등록완료'로 바뀐다. */
+function openProspectSchModal(prospectId) {
+  if (!prospectById(prospectId)) return;
+  openSchModal(null, today(), prospectId);
+}
 function saveSch() {
   if (!$('s-title').value.trim()) return alert('방문 목적·내용을 입력해주세요.');
   const result = $('s-result').value.trim();
-  const custId = resolveCust($('s-cust').value);
+  const prospectId = $('s-prospect-id').value;
+  /* 타겟병원 일정은 아직 고객사가 아니므로 customer 를 새로 만들지 않는다 */
+  const custId = prospectId ? '' : resolveCust($('s-cust').value);
   const rep = resolveRep($('s-rep').value);
   const p = prodByCode($('s-interest').value);
   /* 결과를 적었으면 완료로 본다 (다녀와서 기록한 것이므로) */
   const done = $('s-done').checked || !!result;
   const row = {
-    date: $('s-date').value || today(), time: $('s-time').value, custId,
+    date: $('s-date').value || today(), time: $('s-time').value, custId, prospectId,
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
     interest: p ? p.name : '',
@@ -3227,6 +3245,10 @@ function saveSch() {
   let cur;
   if (id) { cur = DB.schedules.find(x => x.id === id); Object.assign(cur, row); }
   else { cur = Object.assign({ id: uid() }, row); DB.schedules.push(cur); }
+  if (prospectId) {
+    const pr = prospectById(prospectId);
+    if (pr) { pr.status = '일정등록완료'; pr.updatedAt = today(); }
+  }
 
   /* 결과를 상담일지로도 남긴다 → 고객사 활동 타임라인에 축적 */
   if (result && custId && $('s-mklog').checked) {
@@ -4028,8 +4050,8 @@ function quickLogForCust() { const id = CD_ID; hideCd(); setTimeout(() => openLo
 function quickDealForCust() { const id = CD_ID; hideCd(); setTimeout(() => openDealModal(null, id), 300); }
 
 /* ───────────────────────── 10-1. 타겟병원 (아직 계약 안 된 잠재 병원) ───────────────────────── */
-const PROSPECT_STATUS = ['신규', '접촉중', '제안', '보류'];
-const PROSPECT_STATUS_COLOR = { '신규': '#0ea5e9', '접촉중': '#6366f1', '제안': '#8b5cf6', '보류': '#94a3b8' };
+const PROSPECT_STATUS = ['신규', '접촉중', '제안', '보류', '일정등록완료'];
+const PROSPECT_STATUS_COLOR = { '신규': '#0ea5e9', '접촉중': '#6366f1', '제안': '#8b5cf6', '보류': '#94a3b8', '일정등록완료': '#16a34a' };
 const prospectById = id => DB.prospects.find(p => p.id === id);
 
 function renderProspects() {
@@ -4063,7 +4085,7 @@ function renderProspects() {
     <td style="font-size:12px">${esc(p.interest || '-')}</td>
     <td style="font-size:12px;color:#64748b">${esc(p.nextAction || '-')}${p.nextActionDate ? ' · ' + fmtDate(p.nextActionDate) : ''}</td>
     <td class="text-end">
-      <button class="btn btn-sm btn-outline-success me-1" title="고객사로 전환" onclick="convertProspect('${p.id}')"><i class="bi bi-arrow-right-circle"></i></button>
+      <button class="btn btn-sm btn-outline-success me-1" title="일정 등록" onclick="openProspectSchModal('${p.id}')"><i class="bi bi-calendar-plus"></i></button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openProspectModal('${p.id}')"><i class="bi bi-pencil"></i></button>
     </td>
   </tr>`).join('') : `<tr><td colspan="9" class="table-empty">타겟병원이 없습니다</td></tr>`;
@@ -4551,7 +4573,7 @@ function exportAllExcel() {
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.products.map(p => ({
     제품코드: p.code, 제품명: p.name, 분류: p.cat, 정가: num(p.price), 단위: p.unit, 보증월: num(p.warranty) }))), '제품');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.schedules.map(s => ({
-    일자: s.date, 시간: s.time, 고객사: s.custId ? custName(s.custId) : '', 유형: s.type,
+    일자: s.date, 시간: s.time, 고객사: s.custId || s.prospectId ? schCustLabel(s) : '', 유형: s.type,
     내용: s.title, 담당: s.rep, 완료: s.done ? 'Y' : 'N', 결과: s.result }))), '일정');
   XLSX.writeFile(wb, `urolink-crm-${today()}.xlsx`);
   toast('엑셀 파일을 내려받았습니다');
