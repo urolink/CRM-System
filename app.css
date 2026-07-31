@@ -249,6 +249,20 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .st-d{font-size:11.5px;font-weight:800;color:#ea580c;font-variant-numeric:tabular-nums;white-space:nowrap}
 .st-e{font-size:11.5px;color:#cbd5e1;padding:6px 0}
 
+/* ── 자동 로그아웃 경고 배너 ── */
+#idle-warn{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:6000;
+  display:none;align-items:center;gap:10px;background:#182230;color:#fff;
+  border-radius:12px;padding:11px 14px;box-shadow:0 12px 32px rgba(15,23,42,.32);
+  font-size:13px;font-weight:600;max-width:92vw}
+#idle-warn i{font-size:16px;color:#fbbf24;flex-shrink:0}
+#idle-warn b{color:#fbbf24}
+#idle-warn button{border:0;background:#fff;color:#182230;font-size:12px;font-weight:800;
+  border-radius:7px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+#idle-warn button:hover{background:#e2e8f0}
+/* 사용자 목록: 자동 로그아웃 예외 표시 */
+.u-ib.ex{color:#0e7490;border-color:#a5e8f0;background:#f0fdff}
+.u-ib.ex:hover{background:#e0f7fa;color:#0b5c73}
+
 /* ══ 문서형 KPI 밴드 (원텍 한국영업 .cdud 이식) ══ */
 .cdud{--ink:#182230;--mut:#64748b;--line:#e4e8ef;--navy:#16324f;--acc:#0e7490;--rd:#dc2626;--grn:#15803d;
   background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px 34px 32px;letter-spacing:-.01em}

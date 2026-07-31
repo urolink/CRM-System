@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731c';
+const APP_VERSION = '20260731d';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4675,6 +4675,7 @@ function lgMsg(msg, kind) {
 function showLogin() {
   document.body.classList.add('locked');
   $('login-screen').classList.add('on');
+  idleNotice();                       // 자동 로그아웃으로 돌아왔으면 이유를 알려준다
   setTimeout(() => $('lg-email').focus(), 100);
 }
 function hideLogin() {
@@ -4717,14 +4718,128 @@ async function doLogin() {
   lgFailSet(0);
   await afterLogin(data.session);
 }
+
+/* ══════════════════════════════════════════════════════════════
+   자동 로그아웃 (무조작 30분)
+   ul_profiles.idle_exempt = true 인 계정은 제외한다.
+   ⚠ 이건 '자리 비움 보호' 지 인증 경계가 아니다.
+     브라우저를 열어두고 자바스크립트를 막으면 우회할 수 있고,
+     Supabase 세션 토큰 자체는 서버가 정한 만료까지 살아 있다.
+     진짜 강제하려면 Supabase 의 JWT/refresh 만료를 줄여야 한다.
+   ══════════════════════════════════════════════════════════════ */
+const IDLE_LIMIT_MS = 30 * 60 * 1000;   // 30분
+const IDLE_WARN_MS  = 60 * 1000;        // 만료 60초 전 경고
+const IDLE_TICK_MS  = 10 * 1000;        // 확인 주기
+const IDLE_SAVE_MS  = 5 * 1000;         // 활동 기록 최소 간격(과도한 쓰기 방지)
+const idleKey = () => 'urolink_last_active';
+
+let IDLE_TIMER = null, IDLE_LAST_WRITE = 0, IDLE_WARNED = false;
+
+const idleExempt = () => !!(ME && ME.idle_exempt);
+
+function idleStamp() {
+  try { localStorage.setItem(idleKey(), String(Date.now())); } catch (e) {}
+}
+function idleRead() {
+  try { return num(localStorage.getItem(idleKey())) || Date.now(); }
+  catch (e) { return Date.now(); }
+}
+/* 다른 탭에서의 조작도 활동으로 인정해야 하므로 localStorage 를 공유 기준으로 쓴다 */
+function idleTouch() {
+  const now = Date.now();
+  if (now - IDLE_LAST_WRITE < IDLE_SAVE_MS) return;
+  IDLE_LAST_WRITE = now;
+  idleStamp();
+  if (IDLE_WARNED) { IDLE_WARNED = false; hideIdleWarn(); }
+}
+
+function startIdleWatch() {
+  stopIdleWatch();
+  if (!isRemote() || !ME || idleExempt()) return;
+  idleStamp();
+  ['mousedown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev =>
+    window.addEventListener(ev, idleTouch, { passive: true, capture: true }));
+  document.addEventListener('visibilitychange', onIdleVisible);
+  IDLE_TIMER = setInterval(idleCheck, IDLE_TICK_MS);
+}
+function stopIdleWatch() {
+  if (IDLE_TIMER) { clearInterval(IDLE_TIMER); IDLE_TIMER = null; }
+  ['mousedown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev =>
+    window.removeEventListener(ev, idleTouch, { capture: true }));
+  document.removeEventListener('visibilitychange', onIdleVisible);
+  hideIdleWarn();
+}
+/* 탭을 다시 열었을 때 즉시 판정한다 (백그라운드에서 타이머가 눌려 있을 수 있다) */
+function onIdleVisible() { if (!document.hidden) idleCheck(); }
+
+function idleCheck() {
+  if (!ME || idleExempt()) { stopIdleWatch(); return; }
+  const left = IDLE_LIMIT_MS - (Date.now() - idleRead());
+  if (left <= 0) { idleLogout(); return; }
+  if (left <= IDLE_WARN_MS) { IDLE_WARNED = true; showIdleWarn(Math.ceil(left / 1000)); }
+  else if (IDLE_WARNED) { IDLE_WARNED = false; hideIdleWarn(); }
+}
+
+let IDLE_LOGGING_OUT = false;
+async function idleLogout() {
+  if (IDLE_LOGGING_OUT) return;      // 틱이 겹쳐 두 번 도는 것을 막는다
+  IDLE_LOGGING_OUT = true;
+  stopIdleWatch();
+  ME = null;
+  try { localStorage.removeItem(idleKey()); } catch (e) {}
+  /* 네트워크가 느려도 화면은 반드시 잠긴다.
+     signOut 응답을 무한정 기다리면 로그인 상태로 남아 있게 되므로 3초만 기다린다.
+     (토큰은 다음 접속 때 어차피 만료·갱신 검사를 거친다) */
+  try {
+    await Promise.race([
+      SB.auth.signOut(),
+      new Promise(r => setTimeout(r, 3000))
+    ]);
+  } catch (e) {}
+  /* 저장은 이미 서버에 끝나 있으므로 다시 로그인하면 그대로 이어서 쓸 수 있다 */
+  location.replace(location.pathname + '?to=idle');
+}
+
+function showIdleWarn(sec) {
+  let el = $('idle-warn');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'idle-warn';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<i class="bi bi-clock-history"></i>'
+    + '<span>오래 조작이 없어 <b>' + sec + '초</b> 뒤 자동 로그아웃됩니다</span>'
+    + '<button onclick="idleStay()">계속 사용</button>';
+  el.style.display = 'flex';
+}
+function hideIdleWarn() {
+  const el = $('idle-warn');
+  if (el) el.style.display = 'none';
+}
+function idleStay() {
+  IDLE_LAST_WRITE = 0;
+  idleTouch();
+  hideIdleWarn();
+}
+/* 자동 로그아웃으로 돌아온 경우 로그인 화면에 이유를 알려준다 */
+function idleNotice() {
+  if (String(location.search || '').indexOf('to=idle') < 0) return;
+  lgMsg('30분 동안 조작이 없어 자동 로그아웃되었습니다. 다시 로그인해주세요.');
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+}
+
 async function doLogout() {
   if (!confirm('로그아웃할까요?')) return;
+  stopIdleWatch();
+  try { localStorage.removeItem(idleKey()); } catch (e) {}
   try { await SB.auth.signOut(); } catch (e) {}
   location.reload();
 }
 async function afterLogin(session) {
+  /* active 를 안 가져오면 아래 차단 검사가 항상 통과해버린다(undefined !== false).
+     idle_exempt 는 자동 로그아웃 예외 여부. */
   const { data: p } = await SB.from('ul_profiles')
-    .select('id,email,display_name,role').eq('id', session.user.id).maybeSingle();
+    .select('id,email,display_name,role,active,idle_exempt').eq('id', session.user.id).maybeSingle();
   ME = p || { id: session.user.id, email: session.user.email,
               display_name: String(session.user.email || '').split('@')[0], role: 'user' };
   if (p && p.active === false) {
@@ -4737,6 +4852,7 @@ async function afterLogin(session) {
   hideLogin();
   await pullRemote(false);
   startApp();
+  startIdleWatch();
 }
 function renderAccountBox() {
   const box = $('account-box'), card = $('sidebar-user');
@@ -4862,6 +4978,10 @@ function paintUsers() {
             + '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>관리자</option></select></td>'
           + '<td class="u-date">' + fmtDate(u.created_at) + '</td>'
           + '<td class="u-act">'
+            + '<button class="u-ib' + (u.idle_exempt ? ' ex' : '') + '" onclick="toggleIdleExempt(&#39;' + uid + '&#39;)"'
+              + ' title="' + (u.idle_exempt ? '자동 로그아웃 예외 (제한 없음) — 눌러서 30분 제한 적용'
+                                            : '30분 무조작 시 자동 로그아웃 — 눌러서 예외 처리') + '">'
+              + '<i class="bi ' + (u.idle_exempt ? 'bi-infinity' : 'bi-clock-history') + '"></i></button>'
             + (me ? '<span class="u-self">본인</span>'
                   : '<button class="u-ib" onclick="openSetPw(&#39;' + uid + '&#39;)" title="비밀번호 직접 변경">'
                     + '<i class="bi bi-key"></i></button>'
@@ -4926,6 +5046,27 @@ async function setUserField(id, field, v) {
   if (error) { alert('수정 실패: ' + error.message); renderUsers(); return; }
   if (field === 'display_name' && ME && ME.id === id) { ME.display_name = val; renderAccountBox(); }
   toast('수정했습니다');
+  renderUsers();
+}
+/* 자동 로그아웃 예외 켜고 끄기 */
+async function toggleIdleExempt(id) {
+  const u = U_ROWS.find(x => x.id === id);
+  if (!u) return;
+  const next = !u.idle_exempt;
+  const nm = u.display_name || u.email;
+  if (!confirm(next
+    ? nm + ' 계정을 자동 로그아웃 예외로 둡니다.' + NL + '자리를 비워도 로그인 상태가 유지됩니다.'
+    : nm + ' 계정에 30분 자동 로그아웃을 적용합니다.' + NL + '30분 동안 조작이 없으면 로그아웃됩니다.')) return;
+  const { error } = await SB.from('ul_profiles').update({ idle_exempt: next }).eq('id', id);
+  if (error) {
+    alert(/column .* does not exist|idle_exempt/i.test(error.message || '')
+      ? '아직 migration_v4.sql 을 실행하지 않았습니다.' + NL + 'Supabase → SQL Editor 에서 먼저 실행해주세요.'
+      : '변경 실패: ' + error.message);
+    return;
+  }
+  /* 본인 설정을 바꿨으면 감시도 즉시 반영 */
+  if (ME && ME.id === id) { ME.idle_exempt = next; next ? stopIdleWatch() : startIdleWatch(); }
+  toast(nm + ' — ' + (next ? '자동 로그아웃 예외' : '30분 자동 로그아웃 적용'));
   renderUsers();
 }
 async function setUserRole(id, role) {

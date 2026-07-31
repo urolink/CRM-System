@@ -35,10 +35,13 @@ begin
     execute format('drop policy if exists ul_update on %I', t);
     execute format('drop policy if exists ul_delete on %I', t);
 
-    execute format('create policy ul_read   on %I for select to authenticated using (true)', t);
-    execute format('create policy ul_insert on %I for insert to authenticated with check (true)', t);
-    execute format('create policy ul_update on %I for update to authenticated using (true) with check (true)', t);
-    execute format('create policy ul_delete on %I for delete to authenticated using (ul_is_admin())', t);
+    -- ⚠ ul_is_active() 를 반드시 걸어야 합니다.
+    --   v2 에서 나머지 테이블은 '차단(active=false)' 계정을 막도록 올렸는데,
+    --   여기만 using(true) 로 두면 차단된 계정이 목표·변경이력을 읽고 쓸 수 있습니다.
+    execute format('create policy ul_read   on %I for select to authenticated using (ul_is_active())', t);
+    execute format('create policy ul_insert on %I for insert to authenticated with check (ul_is_active())', t);
+    execute format('create policy ul_update on %I for update to authenticated using (ul_is_active()) with check (ul_is_active())', t);
+    execute format('create policy ul_delete on %I for delete to authenticated using (ul_is_admin() and ul_is_active())', t);
 
     execute format('drop trigger if exists %I on %I', t || '_stamp', t);
     execute format(
