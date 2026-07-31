@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731h';
+const APP_VERSION = '20260731i';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3221,6 +3221,11 @@ function openSchModal(id, preDate, forceProspectId) {
   $('s-title').value = s ? s.title : (pr ? (pr.name + ' 방문') : '');
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
+  $('s-h-director').value = s ? (s.hospitalDirector || '') : '';
+  $('s-h-contact').value = s ? (s.hospitalContact || '') : '';
+  $('s-h-doctor-count').value = s && num(s.doctorCount) ? num(s.doctorCount) : '';
+  $('s-h-main-procedure').value = s ? (s.mainProcedure || '') : '';
+  $('s-h-competitor').value = s ? (s.hospitalCompetitor || '') : '';
   $('s-purchase-status').value = s ? (s.purchaseStatus || '') : '';
   $('s-purchase-amount').value = s && num(s.purchaseAmount) ? comma(s.purchaseAmount) : '';
   $('s-propose-amount').value = s && num(s.proposeAmount) ? comma(s.proposeAmount) : '';
@@ -3267,6 +3272,10 @@ function saveSch() {
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
     interest: p ? p.name : '',
+    /* 영업 활동 보고서 양식 — 병원 현황 */
+    hospitalDirector: trimv($('s-h-director').value), hospitalContact: trimv($('s-h-contact').value),
+    doctorCount: num($('s-h-doctor-count').value), mainProcedure: trimv($('s-h-main-procedure').value),
+    hospitalCompetitor: trimv($('s-h-competitor').value),
     /* 영업 활동 보고서 양식 — 결과 및 담당자 의견 */
     purchaseStatus: $('s-purchase-status').value, purchaseAmount: num($('s-purchase-amount').value),
     proposeAmount: num($('s-propose-amount').value), nonPurchaseReason: trimv($('s-nonpurchase-reason').value),
@@ -3287,6 +3296,8 @@ function saveSch() {
       custId, prospectId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
       grade: row.grade,
+      hospitalDirector: row.hospitalDirector, hospitalContact: row.hospitalContact,
+      doctorCount: row.doctorCount, mainProcedure: row.mainProcedure, hospitalCompetitor: row.hospitalCompetitor,
       purchaseStatus: row.purchaseStatus, purchaseAmount: row.purchaseAmount,
       proposeAmount: row.proposeAmount, nonPurchaseReason: row.nonPurchaseReason,
       interest: row.interest, nextAction: row.nextAction, nextActionDate: row.nextActionDate, rep
