@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260730y';
+const APP_VERSION = '20260731a';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -92,11 +92,11 @@ let DB = null;
 const CFG = window.UROLINK_CONFIG || {};
 const TABLES = { customers: 'ul_customers', deals: 'ul_deals', logs: 'ul_logs', quotes: 'ul_quotes',
                  equipments: 'ul_equipments', products: 'ul_products', schedules: 'ul_schedules', reps: 'ul_reps',
-                 targets: 'ul_targets', audits: 'ul_audits' };
+                 targets: 'ul_targets', audits: 'ul_audits', prospects: 'ul_prospects' };
 const KEY_FIELD = { products: 'code', reps: 'name' };   // 그 외 컬렉션은 'id'
-/* 나중에 추가된 테이블 — migration_v3.sql 을 아직 실행하지 않은 환경도 있다.
+/* 나중에 추가된 테이블 — migration_v3.sql / migration_v4.sql 을 아직 실행하지 않은 환경도 있다.
    이 테이블이 없다고 해서 앱 전체 로딩이 막히면 안 되므로 선택적으로 취급한다. */
-const OPTIONAL_TABLES = ['targets', 'audits'];
+const OPTIONAL_TABLES = ['targets', 'audits', 'prospects'];
 const MISSING_TABLES = new Set();
 const isMissingRelation = m => /relation .* does not exist|could not find the table|schema cache/i.test(String(m || ''));
 const rowKey = (coll, row) => String(row[KEY_FIELD[coll] || 'id'] || '');
@@ -119,7 +119,7 @@ function ensureAdmin() {
 }
 function blankDB() {
   return { customers: [], deals: [], logs: [], quotes: [], equipments: [], products: [], schedules: [],
-           reps: [], targets: [], audits: [], meta: { ver: 1, updatedAt: null, sample: false } };
+           reps: [], targets: [], audits: [], prospects: [], meta: { ver: 1, updatedAt: null, sample: false } };
 }
 function fixShape() {
   const b = blankDB();
@@ -474,13 +474,14 @@ function seed() {
 }
 
 /* ───────────────────────── 5. 라우팅 ───────────────────────── */
-const PAGES = ['overview','mix','dashboard','analysis','sales','schedule','quotes','customers','equipments','products','settings'];
+const PAGES = ['overview','mix','dashboard','analysis','sales','schedule','quotes','prospects','customers','equipments','products','settings'];
 /* 사이드바 하이라이트 귀속: 장비 페이지는 '고객사·장비' 메뉴에 속함 */
 const NAV_OF = { equipments: 'customers' };
 const RENDER = {
   overview: () => renderOverview(), mix: () => renderMix(), dashboard: () => renderDashboard(),
   analysis: () => renderAnalysis(), sales: () => renderSales(),
-  schedule: () => renderSchedule(), quotes: () => renderQuotes(), customers: () => renderCustomers(),
+  schedule: () => renderSchedule(), quotes: () => renderQuotes(), prospects: () => renderProspects(),
+  customers: () => renderCustomers(),
   equipments: () => renderEquip(), products: () => renderProducts(), settings: () => renderSettings()
 };
 let CUR_PAGE = 'overview';
@@ -581,6 +582,7 @@ function refreshCounts() {
   setCnt('cnt-deals',  DB.deals.filter(d => OPEN_STAGES.includes(d.stage)).length);
   setCnt('cnt-sch',    DB.schedules.filter(s => !s.done && (dDays(s.date) ?? -99) >= 0).length);
   setCnt('cnt-quotes', DB.quotes.length);
+  setCnt('cnt-prospects', DB.prospects.length);
   setCnt('cnt-cust',   DB.customers.length);
   setCnt('cnt-equip',  DB.equipments.length);
   setCnt('cnt-prod',   DB.products.length);
@@ -686,13 +688,15 @@ function flushAutoAdded() {
 function refreshSelects() {
   refreshDatalists();
   /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
-  ['pipe-rep','c-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
+  ['pipe-rep','c-rep','pr-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
   fillSelect($('d-stage'), STAGES.map(s => s.name));
   fillSelect($('d-lost-reason'), LOST_REASONS, { blank: '선택하세요', keep: true });
   fillDatalist('dl-comp', compNames());
   fillSelect($('dl-stage'), STAGES.map(s => s.name), { blank: '전체 단계', keep: true });
   fillSelect($('p-cat'), [...new Set(DB.products.map(p => p.cat))], { blank: '전체 분류', keep: true });
   fillSelect($('c-region'), [...new Set(DB.customers.map(c => c.sido).filter(Boolean))].sort(), { blank: '전체 지역', keep: true });
+  fillSelect($('pr-region'), [...new Set(DB.prospects.map(p => p.sido).filter(Boolean))].sort(), { blank: '전체 지역', keep: true });
+  fillSelect($('pr-status'), PROSPECT_STATUS, { blank: '전체 상태', keep: true });
   // 연도 select
   const years = [...new Set([new Date().getFullYear(), ...DB.deals.map(d => num(String(d.expectedDate).slice(0, 4))).filter(y => y > 2000)])].sort((a, b) => b - a);
   /* 연도 목록이 늘어나면 다시 채운다. 사용자가 고른 값은 그대로 유지. */
@@ -4025,6 +4029,111 @@ function hideCd() { const m = bootstrap.Modal.getInstance($('custDetailModal'));
 function editCustFromDetail() { const id = CD_ID; hideCd(); setTimeout(() => openCustModal(id), 300); }
 function quickLogForCust() { const id = CD_ID; hideCd(); setTimeout(() => openLogModal(null, id), 300); }
 function quickDealForCust() { const id = CD_ID; hideCd(); setTimeout(() => openDealModal(null, id), 300); }
+
+/* ───────────────────────── 10-1. 타겟병원 (아직 계약 안 된 잠재 병원) ───────────────────────── */
+const PROSPECT_STATUS = ['신규', '접촉중', '제안', '보류'];
+const PROSPECT_STATUS_COLOR = { '신규': '#0ea5e9', '접촉중': '#6366f1', '제안': '#8b5cf6', '보류': '#94a3b8' };
+const prospectById = id => DB.prospects.find(p => p.id === id);
+
+function renderProspects() {
+  const q = trimv(($('pr-search') || {}).value).toLowerCase();
+  const st = ($('pr-status') || {}).value, rep = ($('pr-rep') || {}).value, rg = ($('pr-region') || {}).value;
+  const all = DB.prospects;
+  const stCnt = PROSPECT_STATUS.map(s => all.filter(p => p.status === s).length);
+  const band = $('prospect-band');
+  if (band) band.innerHTML = `
+    <div class="wt-hero"><div class="l">전체 타겟병원</div><b>${all.length}곳</b><div class="s">아직 계약 안 된 잠재 병원</div></div>
+    ${PROSPECT_STATUS.map((s, i) => `<div class="wt-fact"><div class="l">${esc(s)}</div><b>${stCnt[i]}</b></div>`).join('')}`;
+
+  const rows = all.filter(p => {
+    if (st && p.status !== st) return false;
+    if (rep && p.rep !== rep) return false;
+    if (rg && p.sido !== rg) return false;
+    if (q) return (p.name + ' ' + (p.dept || '') + ' ' + (p.sido || '') + (p.gugun || '') + ' '
+      + (p.rep || '') + ' ' + (p.interest || '') + ' ' + (p.phone || '')).toLowerCase().includes(q);
+    return true;
+  }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const tb = $('prospect-tbody');
+  if (!tb) return;
+  tb.innerHTML = rows.length ? rows.map(p => `<tr>
+    <td><a class="cust-link" onclick="openProspectModal('${p.id}')">${esc(p.name)}</a></td>
+    <td style="font-size:12px;color:#64748b">${esc(p.type || '-')}</td>
+    <td>${esc(p.dept || '-')}</td>
+    <td style="font-size:12px">${esc((p.sido || '') + ' ' + (p.gugun || '')) || '-'}</td>
+    <td>${esc(p.rep || '-')}</td>
+    <td><span class="badge" style="background:${PROSPECT_STATUS_COLOR[p.status] || '#94a3b8'}">${esc(p.status || '신규')}</span></td>
+    <td style="font-size:12px">${esc(p.interest || '-')}</td>
+    <td style="font-size:12px;color:#64748b">${esc(p.nextAction || '-')}${p.nextActionDate ? ' · ' + fmtDate(p.nextActionDate) : ''}</td>
+    <td class="text-end">
+      <button class="btn btn-sm btn-outline-success me-1" title="고객사로 전환" onclick="convertProspect('${p.id}')"><i class="bi bi-arrow-right-circle"></i></button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openProspectModal('${p.id}')"><i class="bi bi-pencil"></i></button>
+    </td>
+  </tr>`).join('') : `<tr><td colspan="9" class="table-empty">타겟병원이 없습니다</td></tr>`;
+}
+
+function openProspectModal(id) {
+  refreshSelects();
+  fillSelect($('pr-status-in'), PROSPECT_STATUS);
+  const p = id ? prospectById(id) : null;
+  $('pr-modal-title').textContent = p ? '타겟병원 수정' : '타겟병원 추가';
+  $('pr-del-btn').style.display = p ? 'inline-block' : 'none';
+  $('pr-conv-btn').style.display = p ? 'inline-block' : 'none';
+  $('pr-id').value = p ? p.id : '';
+  $('pr-name').value = p ? p.name : '';
+  $('pr-type').value = p ? (p.type || '의원') : '의원';
+  $('pr-dept').value = p ? (p.dept || '') : '비뇨의학과';
+  $('pr-sido').value = p ? (p.sido || '') : '';
+  $('pr-gugun').value = p ? (p.gugun || '') : '';
+  $('pr-rep-in').value = p ? (p.rep || '') : '';
+  $('pr-phone').value = p ? (p.phone || '') : '';
+  $('pr-addr').value = p ? (p.addr || '') : '';
+  $('pr-status-in').value = p ? (p.status || '신규') : '신규';
+  $('pr-interest').value = p ? (p.interest || '') : '';
+  $('pr-next').value = p ? (p.nextAction || '') : '';
+  $('pr-next-date').value = p ? (p.nextActionDate || '') : '';
+  $('pr-memo').value = p ? (p.memo || '') : '';
+  new bootstrap.Modal($('prospectModal')).show();
+}
+function saveProspect() {
+  const name = $('pr-name').value.trim();
+  if (!name) return alert('병원명을 입력해주세요.');
+  const row = { name, type: $('pr-type').value, dept: $('pr-dept').value.trim(),
+    sido: $('pr-sido').value.trim(), gugun: $('pr-gugun').value.trim(),
+    rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(), addr: $('pr-addr').value.trim(),
+    status: $('pr-status-in').value, interest: $('pr-interest').value.trim(),
+    nextAction: $('pr-next').value.trim(), nextActionDate: $('pr-next-date').value, memo: $('pr-memo').value.trim(),
+    updatedAt: today(), updatedBy: curUserName() };
+  const id = $('pr-id').value;
+  if (id) Object.assign(prospectById(id), row);
+  else DB.prospects.push(Object.assign({ id: uid(), createdAt: today() }, row));
+  save();
+  bootstrap.Modal.getInstance($('prospectModal')).hide();
+  renderProspects();
+}
+function deleteProspect() {
+  if (!ensureAdmin()) return;
+  const id = $('pr-id').value; if (!id) return;
+  if (!confirm('이 타겟병원을 삭제할까요?')) return;
+  DB.prospects = DB.prospects.filter(p => p.id !== id);
+  save(); bootstrap.Modal.getInstance($('prospectModal')).hide(); renderProspects();
+}
+/* 고객사로 전환 — 타겟병원 정보를 그대로 고객사에 옮기고, 아직 계약 안 된 목록에서는 뺀다 */
+function convertProspect(id) {
+  const p = prospectById(id);
+  if (!p) return;
+  if (!confirm(`'${p.name}'을(를) 고객사로 전환할까요?\n타겟병원 목록에서는 사라집니다.`)) return;
+  DB.customers.push({ id: uid(), name: p.name, type: p.type || '의원', doctor: '', dept: p.dept || '비뇨의학과',
+    grade: 'C', sido: p.sido || '', gugun: p.gugun || '', rep: p.rep || '', phone: p.phone || '',
+    addr: p.addr || '', tags: [], memo: p.memo || '', createdAt: today() });
+  DB.prospects = DB.prospects.filter(x => x.id !== id);
+  save();
+  const m = bootstrap.Modal.getInstance($('prospectModal'));
+  if (m) m.hide();
+  refreshSelects();
+  renderProspects();
+  toast('고객사로 전환했습니다');
+}
 
 /* ───────────────────────── 11. 장비 · A/S ───────────────────────── */
 function renderEquip() {

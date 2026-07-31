@@ -75,10 +75,12 @@ python -m http.server 8795
 - 매출 = `stage: '계약완료'` 인 딜. 종합·매출믹스·영업분석이 모두 이걸 집계합니다.
 
 ### ⚠ 아직 실행하지 않은 SQL이 있습니다
-`migration_v3.sql` — **목표(ul_targets)** 와 **변경이력(ul_audits)** 테이블을 만듭니다.
-Supabase → SQL Editor 에 붙여넣고 1회 실행하세요.
+- `migration_v3.sql` — **목표(ul_targets)** 와 **변경이력(ul_audits)** 테이블을 만듭니다.
+- `migration_v4.sql` — **타겟병원(ul_prospects)** 테이블을 만듭니다.
 
-실행 전까지는 목표·변경이력이 **그 브라우저에만** 저장되고 다른 사람과 공유되지 않습니다.
+Supabase → SQL Editor 에 붙여넣고 1회씩 실행하세요.
+
+실행 전까지는 목표·변경이력·타겟병원이 **그 브라우저에만** 저장되고 다른 사람과 공유되지 않습니다.
 (앱은 정상 동작합니다. 없는 테이블은 `OPTIONAL_TABLES` 로 처리해 로딩을 막지 않습니다.)
 새 테이블을 또 추가할 일이 생기면 `TABLES` 에 넣고 같은 방식으로 선택적 처리를 하세요.
 
