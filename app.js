@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731j';
+const APP_VERSION = '20260731k';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -267,8 +267,15 @@ async function pullRemote(withToast) {
   }
 
   const meta = DB && DB.meta ? DB.meta : blankDB().meta;
+  /* 아직 서버에 테이블이 없는 선택적 컬렉션(목표·이력·타겟병원)은 서버의 빈 결과로
+     로컬 데이터를 지우면 안 된다 — 이 브라우저(캐시)에 있던 값을 그대로 이어간다.
+     ⚠ 여기서 덮어써버리면 migration_v*.sql 실행 전까지 새로고침할 때마다
+        타겟병원 등이 통째로 사라진다(실제로 있었던 버그). */
+  const prevLocal = DB || blankDB();
   DB = blankDB();
-  names.forEach((n, i) => { DB[n] = (res[i].data || []).map(r => r.data).filter(Boolean); });
+  names.forEach((n, i) => {
+    DB[n] = MISSING_TABLES.has(n) ? (prevLocal[n] || []) : (res[i].data || []).map(r => r.data).filter(Boolean);
+  });
   DB.meta = meta;
   fixShape();
   SHADOW = clone(DB);
@@ -3653,6 +3660,12 @@ const REPORT_CSS = `
   .rp-note{margin-top:10px;border:1px solid #dbe3ec;border-radius:6px;overflow:hidden}
   .rp-note .t{background:#f5f8fa;border-bottom:1px solid #dbe3ec;padding:7px 10px;font-size:11.5px;font-weight:800;color:#475569}
   .rp-note .b{padding:11px 12px;font-size:12.5px;color:#334155;white-space:pre-wrap;line-height:1.7;min-height:60px}
+  .rp-bar{position:sticky;top:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;
+    padding:10px 14mm;background:#f8fafc;border-bottom:1px solid #dbe3ec}
+  .rp-bar button{border:0;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;
+    background:#0e7490;color:#fff}
+  .rp-bar button:hover{background:#0c5f76}
+  @media print{.rp-bar{display:none}}
 `;
 function printLogReport(id) {
   const l = DB.logs.find(x => x.id === id);
@@ -3662,9 +3675,11 @@ function printLogReport(id) {
   if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
   win.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>영업 활동 보고서 · ' + esc(logCustLabel(l)) + '</title>'
     + '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">'
-    + '<style>' + REPORT_CSS + '</style></head><body>' + html + '</body></html>');
+    + '<style>' + REPORT_CSS + '</style></head><body>'
+    + '<div class="rp-bar"><button onclick="window.print()">🖨 인쇄 · PDF 저장</button></div>'
+    + html + '</body></html>');
   win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 500);
+  win.focus();
 }
 /* ───────────────────────── 10. 고객사 ───────────────────────── */
 let C_TAG = '';
