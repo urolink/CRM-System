@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731i';
+const APP_VERSION = '20260731j';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2722,17 +2722,13 @@ function logCustLabel(l) {
   if (l.prospectId) { const p = prospectById(l.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
   return '-';
 }
-function logGoDetail(l) {
-  if (l.custId) openCustDetail(l.custId);
-  else if (l.prospectId) openProspectModal(l.prospectId);
-}
 function renderLogs() {
   const q = ($('log-search').value || '').trim().toLowerCase();
   const rows = DB.logs.filter(l => !q || (logCustLabel(l) + ' ' + l.content + ' ' + (l.rep || '') + ' ' + (l.type || '')).toLowerCase().includes(q))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   $('log-tbody').innerHTML = rows.length ? rows.map(l => `<tr>
     <td>${fmtDate(l.date)}</td>
-    <td><a class="cust-link" onclick="logGoDetail(DB.logs.find(function(x){return x.id==='${l.id}'}))">${esc(logCustLabel(l))}</a></td>
+    <td><a class="cust-link" onclick="printLogReport('${l.id}')" title="영업 활동 보고서 보기 · PDF 저장">${esc(logCustLabel(l))}</a></td>
     <td><span class="badge" style="background:#f1f5f9;color:#475569">${esc(l.type)}</span></td>
     <td style="max-width:340px;white-space:normal">${esc(l.content)}</td>
     <td style="font-size:12px;color:#64748b">${esc(l.interest || '-')}</td>
@@ -3295,7 +3291,7 @@ function saveSch() {
     const logRow = {
       custId, prospectId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
-      grade: row.grade,
+      grade: row.grade, visitPurpose: cur.title,
       hospitalDirector: row.hospitalDirector, hospitalContact: row.hospitalContact,
       doctorCount: row.doctorCount, mainProcedure: row.mainProcedure, hospitalCompetitor: row.hospitalCompetitor,
       purchaseStatus: row.purchaseStatus, purchaseAmount: row.purchaseAmount,
@@ -3613,6 +3609,60 @@ function printQuote(id) {
   win.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>견적서 ' + esc(x.no) + '</title>'
     + '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">'
     + '<style>' + QUOTE_CSS + '</style></head><body>' + html + '</body></html>');
+  win.document.close();
+  setTimeout(() => { win.focus(); win.print(); }, 500);
+}
+
+/* ══ 영업 활동 보고서 (상담일지를 첨부 양식대로 보여주기 · PDF 저장) ══ */
+function logReportHTML(l) {
+  const row = (k, v) => '<tr><th>' + esc(k) + '</th><td>' + esc(v || '-') + '</td></tr>';
+  const wideRow = (k, v) => '<tr><th>' + esc(k) + '</th><td colspan="3">' + esc(v || '-') + '</td></tr>';
+  return '<div class="rp">'
+    + '<div class="rp-title">영업 활동 보고서</div>'
+    + '<div class="rp-sec">1. 방문 정보</div>'
+    + '<table class="rp-tbl"><tbody>'
+      + '<tr><th>병원명</th><td>' + esc(logCustLabel(l)) + '</td><th>방문일</th><td>' + esc(fmtDate(l.date)) + '</td></tr>'
+      + '<tr><th>장비명</th><td>' + esc(l.interest || '-') + '</td><th>담당자</th><td>' + esc(l.rep || '-') + '</td></tr>'
+      + wideRow('방문 목적', l.visitPurpose || l.type)
+    + '</tbody></table>'
+    + '<div class="rp-sec">2. 병원 현황</div>'
+    + '<table class="rp-tbl"><tbody>'
+      + '<tr><th>대표원장</th><td>' + esc(l.hospitalDirector || '-') + '</td><th>병원 내 담당자</th><td>' + esc(l.hospitalContact || '-') + '</td></tr>'
+      + '<tr><th>원장 수</th><td>' + esc(num(l.doctorCount) ? num(l.doctorCount) + '명' : '-') + '</td><th>고객 호응도</th><td>' + esc(l.grade ? gradeLabel(l.grade) : '-') + '</td></tr>'
+      + wideRow('주력 시술', l.mainProcedure)
+      + wideRow('경쟁사 (보유 타사 장비)', l.hospitalCompetitor)
+    + '</tbody></table>'
+    + '<div class="rp-sec">3. 결과 및 담당자 의견</div>'
+    + '<table class="rp-tbl"><tbody>'
+      + '<tr><th>구매여부</th><td>' + esc(l.purchaseStatus || '-') + '</td><th>구매금액</th><td>' + esc(num(l.purchaseAmount) ? won(l.purchaseAmount) : '-') + '</td></tr>'
+      + '<tr><th>제안금액</th><td>' + esc(num(l.proposeAmount) ? won(l.proposeAmount) : '-') + '</td><th>미구매 사유</th><td>' + esc(l.nonPurchaseReason || '-') + '</td></tr>'
+    + '</tbody></table>'
+    + '<div class="rp-note"><div class="t">담당자 의견</div><div class="b">' + esc(l.content || '-') + '</div></div>'
+    + '</div>';
+}
+const REPORT_CSS = `
+  *{box-sizing:border-box}
+  body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff;color:#182230;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:0}
+  .rp{padding:16mm 14mm;font-size:12px;letter-spacing:-.01em}
+  .rp-title{font-size:24px;font-weight:800;letter-spacing:.2em;text-align:center;margin-bottom:22px;color:#16324f}
+  .rp-sec{font-size:14px;font-weight:800;color:#1f1f1d;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #16324f}
+  .rp-tbl{width:100%;border-collapse:collapse;margin-bottom:4px}
+  .rp-tbl th{width:120px;background:#f5f8fa;border:1px solid #dbe3ec;padding:8px 10px;font-size:11.5px;font-weight:700;color:#475569;text-align:left;white-space:nowrap}
+  .rp-tbl td{border:1px solid #dbe3ec;padding:8px 10px;font-size:12px;color:#182230}
+  .rp-note{margin-top:10px;border:1px solid #dbe3ec;border-radius:6px;overflow:hidden}
+  .rp-note .t{background:#f5f8fa;border-bottom:1px solid #dbe3ec;padding:7px 10px;font-size:11.5px;font-weight:800;color:#475569}
+  .rp-note .b{padding:11px 12px;font-size:12.5px;color:#334155;white-space:pre-wrap;line-height:1.7;min-height:60px}
+`;
+function printLogReport(id) {
+  const l = DB.logs.find(x => x.id === id);
+  if (!l) return;
+  const html = logReportHTML(l);
+  const win = window.open('', '_blank');
+  if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+  win.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>영업 활동 보고서 · ' + esc(logCustLabel(l)) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">'
+    + '<style>' + REPORT_CSS + '</style></head><body>' + html + '</body></html>');
   win.document.close();
   setTimeout(() => { win.focus(); win.print(); }, 500);
 }
