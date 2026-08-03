@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731t';
+const APP_VERSION = '20260731u';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2861,8 +2861,18 @@ function schCustLabel(s) {
   if (s.prospectId) { const p = prospectById(s.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
   return '내부';
 }
-/* 병원명 + 다음액션 후속 일정 여부 표시 — 목록·달력에서 일반 방문과 구분되도록 */
-const schLabel = s => schCustLabel(s) + (s.src === 'nextAction' ? ' (다음액션)' : '');
+/* 병원명 + 다음액션 후속 일정 여부 표시 — 목록·달력에서 일반 방문과 구분되도록.
+   다음액션 후속 일정은 이미 접촉한 뒤라 '(타겟병원)' 표시가 굳이 필요 없다 —
+   병원명만 깔끔하게 보여주고 '(다음액션)' 만 붙인다. */
+const schLabel = s => {
+  if (s.src === 'nextAction') {
+    const nm = s.custId ? custName(s.custId)
+      : s.prospectId ? ((prospectById(s.prospectId) || {}).name || '(삭제된 타겟병원)')
+      : '내부';
+    return nm + ' (다음액션)';
+  }
+  return schCustLabel(s);
+};
 function schWeekRange(ref) {
   const base = parseD(ref || today()) || new Date();
   const dow = (base.getDay() + 6) % 7;              /* 월요일 시작 */
