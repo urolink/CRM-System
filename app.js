@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731w';
+const APP_VERSION = '20260731x';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -117,7 +117,7 @@ function ensureAdmin() {
   alert('삭제는 관리자만 할 수 있습니다.\n필요하면 관리자에게 요청해주세요.');
   return false;
 }
-/* 고객사·타겟병원·일정·딜·상담일지·견적서·장비는 관리자 뿐 아니라
+/* 고객사·타겟병원·일정·딜·방문일지·견적서·장비는 관리자 뿐 아니라
    본인이 작성한 것도 스스로 지울 수 있다 — 전부 관리자에게 요청해야 하면 병목이 된다.
    (제품·담당자·로그인 계정처럼 여러 사람이 같이 쓰는 마스터 데이터는 계속 관리자 전용) */
 const isOwner = row => !!(row && ME && row.createdById && row.createdById === ME.id);
@@ -1113,7 +1113,7 @@ function drillEquip(title, sub, list) {
   });
   openDrill(title, sub, drillTable(['고객사','모델','시리얼','설치일','보증만료','상태','계약','담당','A/S'], rows));
 }
-/* ── 상담일지 목록 ── */
+/* ── 방문일지 목록 ── */
 function drillLogs(title, sub, list) {
   list = (list || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const rows = list.map(l => '<tr style="cursor:pointer" onclick="drillGo(function(){openLogModal(\'' + l.id + '\')})">'
@@ -1682,7 +1682,7 @@ function auditDiff(coll, id, before, after, label) {
    작성자 본인도 삭제할 수 있게 되면서, 다른 사람은 왜 없어졌는지 알 방법이
    없어지므로 — 관리자가 사용자 관리의 '기록 변경 내역'에서 이걸 본다. */
 const COLL_LABEL = { customers: '고객사', prospects: '타겟병원', schedules: '일정', deals: '딜',
-  logs: '상담일지', quotes: '견적서', equipments: '장비' };
+  logs: '방문일지', quotes: '견적서', equipments: '장비' };
 function auditLog(coll, id, action, label, detail) {
   if (!DB.audits) DB.audits = [];
   DB.audits.push({
@@ -2003,7 +2003,7 @@ function renderActivityTab(y, a, b, wonD) {
         + '<div class="ovc" onclick="' + goSch('데모/시연', '데모 · 시연') + '"><span class="ovc-l">데모 · 시연</span>'
           + '<b class="ovc-v">' + demoAll + '건</b><span class="ovc-s">'
           + (demoAll ? '계약 ' + wonD.length + '건 / 전환 ' + Math.round(wonD.length / demoAll * 100) + '%' : '수주 직전 지표') + '</span></div>'
-        + '<div class="ovc hero sep"><span class="ovc-l">상담일지</span><b class="ovc-v">' + logs.length + '건</b>'
+        + '<div class="ovc hero sep"><span class="ovc-l">방문일지</span><b class="ovc-v">' + logs.length + '건</b>'
           + '<span class="ovc-s">기록으로 남은 접촉</span></div>'
         + '<div class="ovc"><span class="ovc-l">신규 접촉 고객사</span><b class="ovc-v">' + newAll + '곳</b>'
           + '<span class="ovc-s">기간 전 이력 없음</span></div>'
@@ -2013,7 +2013,7 @@ function renderActivityTab(y, a, b, wonD) {
       + '</div></div>'
     + '<div class="ana-note mb-2">활동량은 <b>결과가 나오기 전</b>에 관리할 수 있는 유일한 지표입니다. '
       + '완료율이 낮거나 결과 미입력이 쌓이면 실적이 나오기 전에 먼저 드러납니다.</div>'
-    + tbl(['담당자', '계획', '완료', '완료율', '방문', '전화', '데모', '상담일지', '신규 접촉', '수주', '데모→수주'],
+    + tbl(['담당자', '계획', '완료', '완료율', '방문', '전화', '데모', '방문일지', '신규 접촉', '수주', '데모→수주'],
         stats.map(x => '<td class="fw-bold">' + esc(x.r) + '</td>'
           + '<td class="text-center">' + x.plan + '</td>'
           + '<td class="text-center fw-bold">' + x.done + '</td>'
@@ -2778,8 +2778,8 @@ function deleteDealById(id) {
   return true;
 }
 
-/* ── 상담일지 ── */
-/* 상담일지의 고객사 칸 표시 — 고객사 상담은 custId, 타겟병원 상담은 prospectId 를 쓴다 */
+/* ── 방문일지 ── */
+/* 방문일지의 고객사 칸 표시 — 고객사 상담은 custId, 타겟병원 상담은 prospectId 를 쓴다 */
 function logCustLabel(l) {
   if (l.custId) return custName(l.custId);
   if (l.prospectId) { const p = prospectById(l.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
@@ -2798,14 +2798,14 @@ function renderLogs() {
     <td style="font-size:12px">${esc(l.nextAction || '-')}</td>
     <td>${esc(l.rep || '-')}</td>
     <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openLogModal('${l.id}')"><i class="bi bi-pencil"></i></button></td>
-  </tr>`).join('') : `<tr><td colspan="8" class="table-empty">상담일지가 없습니다</td></tr>`;
+  </tr>`).join('') : `<tr><td colspan="8" class="table-empty">방문일지가 없습니다</td></tr>`;
 }
 function openLogModal(id, custId, forceProspectId) {
   refreshSelects();
   const l = id ? DB.logs.find(x => x.id === id) : null;
   const prospectId = forceProspectId || (l && l.prospectId) || '';
   const pr = prospectId ? prospectById(prospectId) : null;
-  $('log-modal-title').textContent = l ? '상담일지 수정' : '상담일지 작성';
+  $('log-modal-title').textContent = l ? '방문일지 수정' : '방문일지 작성';
   $('l-del-btn').style.display = l ? 'inline-block' : 'none';
   $('l-id').value = l ? l.id : '';
   $('l-prospect-id').value = pr ? prospectId : '';
@@ -2840,7 +2840,7 @@ function deleteLog() {
   const id = $('l-id').value;
   const l = id ? DB.logs.find(x => x.id === id) : null;
   if (!l) return;
-  if (!ensureAdminOrOwner(l, '상담일지')) return;
+  if (!ensureAdminOrOwner(l, '방문일지')) return;
   if (!confirm('이 일지를 삭제할까요?')) return;
   auditLog('logs', id, '삭제', logCustLabel(l), (l.content || '').slice(0, 60));
   DB.logs = DB.logs.filter(x => x.id !== id);
@@ -3141,7 +3141,7 @@ function renderDaySum() {
     + '<div class="cdud-hero" style="cursor:default"><span class="l">일정</span><b>' + sch.length + '건</b>'
     + '<span class="s">완료 ' + sch.filter(s => s.done).length + ' · 대기 ' + sch.filter(s => !s.done).length + '</span></div>'
     + '<div class="cdud-fact"><span>방문</span><b>' + sch.filter(s => s.type === '방문').length + '</b></div>'
-    + '<div class="cdud-fact"><span>상담일지</span><b>' + logs.length + '</b></div>'
+    + '<div class="cdud-fact"><span>방문일지</span><b>' + logs.length + '</b></div>'
     + '<div class="cdud-fact"><span>당일 수주</span><b class="gr">' + money(deals.reduce((s, x) => s + num(x.amount), 0)) + '</b>'
     + '<i>' + deals.length + '건</i></div></div></div>'
     + (byRep || '<div class="text-center text-muted py-4" style="font-size:13px">해당 일자 기록이 없습니다</div>');
@@ -3235,7 +3235,7 @@ function schCustInfo(c) {
       + kpi('누적 수주', money(custWonAmount(id)) + '원', '계약 ' + deals.filter(d => d.stage === '계약완료').length + '건')
       + kpi('진행 딜', openD.length + '건', money(openD.reduce((t, d) => t + num(d.amount), 0)) + '원')
       + kpi('보유 장비', eqs.length + '대', 'A/S ' + eqs.reduce((t, e) => t + (e.as || []).length, 0) + '회')
-      + kpi('최근 접촉', last ? (-dDays(last)) + '일 전' : '없음', last ? fmtDate(last) : '상담일지 없음',
+      + kpi('최근 접촉', last ? (-dDays(last)) + '일 전' : '없음', last ? fmtDate(last) : '방문일지 없음',
             (!last || -dDays(last) > 60) ? 'rd' : '')
     + '</div>'
     + '<div class="sci-rows">'
@@ -3312,7 +3312,7 @@ function openSchModal(id, preDate, forceProspectId) {
   $('s-next-date').value = s ? (s.nextActionDate || '') : '';
   S_GRADE = s ? num(s.grade) : 0;
   renderGradeChips();
-  /* 이미 상담일지로 기록된 건은 중복 생성하지 않도록 기본 해제 */
+  /* 이미 방문일지로 기록된 건은 중복 생성하지 않도록 기본 해제 */
   $('s-mklog').checked = !(s && s.logId);
   $('s-mksch').checked = false;
   /* 상태 칩 */
@@ -3372,7 +3372,7 @@ function saveSch() {
     if (pr) { pr.status = '일정등록완료'; pr.updatedAt = today(); }
   }
 
-  /* 결과를 상담일지로도 남긴다 → 고객사(또는 타겟병원) 활동 타임라인에 축적 */
+  /* 결과를 방문일지로도 남긴다 → 고객사(또는 타겟병원) 활동 타임라인에 축적 */
   if (result && (custId || prospectId) && $('s-mklog').checked) {
     const logRow = {
       custId, prospectId, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
@@ -3407,7 +3407,7 @@ function saveSch() {
   bootstrap.Modal.getInstance($('schModal')).hide();
   const msgs = [];
   if (result) msgs.push('결과 기록');
-  if (result && (custId || prospectId) && $('s-mklog').checked) msgs.push('상담일지 생성');
+  if (result && (custId || prospectId) && $('s-mklog').checked) msgs.push('방문일지 생성');
   if ($('s-mksch').checked && row.nextActionDate) msgs.push('후속 일정 등록');
   if (msgs.length) toast(msgs.join(' · ') + ' 완료');
   RENDER[CUR_PAGE]();
@@ -3710,7 +3710,7 @@ function printQuote(id) {
   setTimeout(() => { win.focus(); win.print(); }, 500);
 }
 
-/* ══ 영업 활동 보고서 (상담일지를 첨부 양식대로 보여주기 · PDF 저장) ══ */
+/* ══ 영업 활동 보고서 (방문일지를 첨부 양식대로 보여주기 · PDF 저장) ══ */
 function logReportHTML(l) {
   const row = (k, v) => '<tr><th>' + esc(k) + '</th><td>' + esc(v || '-') + '</td></tr>';
   const wideRow = (k, v) => '<tr><th>' + esc(k) + '</th><td colspan="3">' + esc(v || '-') + '</td></tr>';
@@ -3886,12 +3886,12 @@ function renderCustomers() {
       <div class="l">B / C등급</div><b>${gradeCnt[1]} / ${gradeCnt[2]}</b><div class="s">성장·유지</div></div>
     <div class="wt-fact clickable" onclick="drillCusts('장비 보유 고객사','설치 장비가 1대 이상인 고객사',DB.customers.filter(function(c){return DB.equipments.some(function(e){return e.custId===c.id})}))">
       <div class="l">장비 보유</div><b>${new Set(DB.equipments.map(e => e.custId)).size}곳</b><div class="s">설치 ${DB.equipments.length}대</div></div>
-    <div class="wt-fact clickable" onclick="drillCusts('30일 내 접촉 고객사','최근 30일 상담일지가 있는 고객사',DB.customers.filter(function(c){return DB.logs.some(function(l){return l.custId===c.id&&(-dDays(l.date))<=30})}))">
-      <div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">상담일지 기준</div></div>
+    <div class="wt-fact clickable" onclick="drillCusts('30일 내 접촉 고객사','최근 30일 방문일지가 있는 고객사',DB.customers.filter(function(c){return DB.logs.some(function(l){return l.custId===c.id&&(-dDays(l.date))<=30})}))">
+      <div class="l">30일 내 접촉</div><b>${all.filter(c => DB.logs.some(l => l.custId === c.id && (-dDays(l.date)) <= 30)).length}곳</b><div class="s">방문일지 기준</div></div>
     <div class="wt-fact clickable" onclick="drillCusts('누적 수주가 있는 고객사','평균 산정 대상',DB.customers.filter(function(c){return custWonAmount(c.id)>0}))">
       <div class="l">고객사당 평균</div><b>${money(cuAvg)}원</b>
       <div class="s">거래 있는 ${cuPaying}곳 평균</div></div>
-    <div class="wt-fact clickable" onclick="drillCusts('60일 이상 미접촉','상담일지가 60일 이상 없는 고객사',DB.customers.filter(function(c){var L=DB.logs.filter(function(l){return l.custId===c.id}).map(function(l){return l.date}).sort().pop();return !L||(-dDays(L))>60}))">
+    <div class="wt-fact clickable" onclick="drillCusts('60일 이상 미접촉','방문일지가 60일 이상 없는 고객사',DB.customers.filter(function(c){var L=DB.logs.filter(function(l){return l.custId===c.id}).map(function(l){return l.date}).sort().pop();return !L||(-dDays(L))>60}))">
       <div class="l">60일+ 미접촉</div><b class="${cuCold ? 'rd' : ''}">${cuCold}곳</b>
       <div class="s">이탈 위험 관리 대상</div></div>
     <div class="wt-fact clickable" onclick="drillCusts('이번달 신규 등록','createdAt 기준',DB.customers.filter(function(c){return String(c.createdAt).slice(0,7)===today().slice(0,7)}))">
@@ -4190,7 +4190,7 @@ function mergeDupGroup(gi) {
   if (!keep) return;
   const dropNames = dropIds.map(id => (custById(id) || {}).name).filter(Boolean);
   if (!confirm('[' + dropNames.join(', ') + '] 을(를) [' + keep.name + '] 로 병합합니다.\n'
-    + '딜 · 일정 · 상담일지 · 장비 · 견적이 모두 옮겨지고 병합된 고객사는 삭제됩니다. 되돌릴 수 없습니다.\n\n계속할까요?')) return;
+    + '딜 · 일정 · 방문일지 · 장비 · 견적이 모두 옮겨지고 병합된 고객사는 삭제됩니다. 되돌릴 수 없습니다.\n\n계속할까요?')) return;
   const moved = mergeCustomers(keepId, dropIds);
   save();
   renderDupBody();
@@ -4250,7 +4250,7 @@ function openCustDetail(id) {
       <div class="s">계약완료 ${deals.filter(d => d.stage === '계약완료').length}건</div></div>
     <div class="wt-fact"><div class="l">진행 딜</div><b>${openD.length}</b><div class="s">${money(openD.reduce((s, d) => s + num(d.amount), 0))}원</div></div>
     <div class="wt-fact"><div class="l">보유 장비</div><b>${DB.equipments.filter(e => e.custId === id).length}</b><div class="s">A/S ${DB.equipments.filter(e => e.custId === id).reduce((s, e) => s + (e.as || []).length, 0)}회</div></div>
-    <div class="wt-fact"><div class="l">최근 접촉</div><b>${lastLog ? (-dDays(lastLog)) + '일 전' : '없음'}</b><div class="s">${lastLog ? fmtDate(lastLog) : '상담일지 없음'}</div></div>`;
+    <div class="wt-fact"><div class="l">최근 접촉</div><b>${lastLog ? (-dDays(lastLog)) + '일 전' : '없음'}</b><div class="s">${lastLog ? fmtDate(lastLog) : '방문일지 없음'}</div></div>`;
   renderCdBody();
   new bootstrap.Modal($('custDetailModal')).show();
 }
@@ -4719,7 +4719,7 @@ function renderAnalysis() {
     $('ana-body').innerHTML = `
       <div class="card p-3 mb-3"><div class="wt-st">담당자별 수주액</div>
         <div style="position:relative;height:${Math.max(180, stats.length * 34)}px"><canvas id="chart-ana"></canvas></div></div>
-      ${tbl(['담당자','수주액','수주건','실주건','성공률','진행 딜','진행액','상담일지'],
+      ${tbl(['담당자','수주액','수주건','실주건','성공률','진행 딜','진행액','방문일지'],
         stats.map(s => `<td class="fw-bold">${esc(s.r)}</td>
           <td class="text-end fw-bold">${comma(s.wonAmt)}<div style="height:4px;background:#eef1f5;border-radius:2px;margin-top:4px"><div style="height:100%;width:${s.wonAmt / maxW * 100}%;background:#0e7490;border-radius:2px"></div></div></td>
           <td class="text-center">${s.wonCnt}</td><td class="text-center">${s.lost}</td>
@@ -4891,7 +4891,7 @@ function exportAllExcel() {
     예상수주일: d.expectedDate, 담당: d.rep, 다음액션: d.nextAction, 액션예정일: d.nextActionDate, 메모: d.memo }))), '딜');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.logs.map(l => ({
     일자: l.date, 고객사: logCustLabel(l), 유형: l.type, 내용: l.content,
-    관심제품: l.interest, 다음액션: l.nextAction, 담당: l.rep }))), '상담일지');
+    관심제품: l.interest, 다음액션: l.nextAction, 담당: l.rep }))), '방문일지');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.quotes.map(q => ({
     견적번호: q.no, 고객사: custName(q.custId), 견적일: q.date, 담당: q.rep,
     품목수: (q.items || []).length, 합계VAT포함: quoteCalc(q.items).total, 상태: q.status }))), '견적서');
@@ -5272,7 +5272,7 @@ function userTab(on, el) {
   paintUsers();
 }
 /* 담당자 관리 — 영업 분석 담당자별 화면에 누구를 보여줄지 고른다.
-   끄는 건 화면 표시만 빼는 것이고, 그 사람 이름으로 남은 딜·일정·상담일지는 그대로 있다. */
+   끄는 건 화면 표시만 빼는 것이고, 그 사람 이름으로 남은 딜·일정·방문일지는 그대로 있다. */
 function renderRepMgmt() {
   const box = $('rep-list');
   if (!box) return;
@@ -5298,12 +5298,12 @@ function toggleRepSales(name) {
   renderRepMgmt();
   if (CUR_PAGE === 'analysis') renderAnalysis();
 }
-/* 담당자 명단에서 완전히 삭제 — 딜·일정·상담일지에 남은 이름 텍스트는 지우지 않는다(기록 보존).
+/* 담당자 명단에서 완전히 삭제 — 딜·일정·방문일지에 남은 이름 텍스트는 지우지 않는다(기록 보존).
    지운 뒤에도 그 이름을 담당자로 다시 입력하면 자동으로 재등록된다(resolveRep). */
 function deleteRep(name) {
   if (!ensureAdmin()) return;
   if (!DB.reps.some(r => r.name === name)) return;
-  if (!confirm(`담당자 '${name}'을(를) 명단에서 삭제할까요?\n이미 이 이름으로 남아있는 딜·일정·상담일지 기록은 지워지지 않습니다.`)) return;
+  if (!confirm(`담당자 '${name}'을(를) 명단에서 삭제할까요?\n이미 이 이름으로 남아있는 딜·일정·방문일지 기록은 지워지지 않습니다.`)) return;
   DB.reps = DB.reps.filter(r => r.name !== name);
   save();
   renderRepMgmt();
