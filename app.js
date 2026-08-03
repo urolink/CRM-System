@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731p';
+const APP_VERSION = '20260731q';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -531,46 +531,58 @@ function closeSidebar() { $('sidebar').classList.remove('open'); $('sidebarOverl
 function alertItems() {
   const out = [], td = today();
   DB.schedules.filter(s => s.date === td && !s.done).forEach(s => out.push({
-    sec: '오늘 일정', ic: 'bi-calendar-event', c: '#0e7490',
+    key: 'sch-today-' + s.id, sec: '오늘 일정', ic: 'bi-calendar-event', c: '#0e7490',
     t: (schCustLabel(s)) + ' · ' + s.type,
     sub: (s.time ? s.time + ' ' : '') + s.title, go: "showPage('schedule')", urgent: true }));
   DB.schedules.filter(s => !s.done && s.date < td).forEach(s => out.push({
-    sec: '놓친 일정', ic: 'bi-exclamation-circle', c: '#dc2626',
+    key: 'sch-late-' + s.id, sec: '놓친 일정', ic: 'bi-exclamation-circle', c: '#dc2626',
     t: (schCustLabel(s)) + ' · ' + fmtDate(s.date).slice(5),
     sub: s.title + ' — 결과 미입력', go: "showPage('schedule');schOverdue()", urgent: true }));
   DB.deals.filter(d => OPEN_STAGES.includes(d.stage) && d.nextAction).forEach(d => {
     const n = dDays(d.nextActionDate || d.expectedDate);
     if (n == null || n > 0) return;
-    out.push({ sec: '다음 액션', ic: 'bi-flag', c: n < 0 ? '#dc2626' : '#ea580c',
+    out.push({ key: 'deal-next-' + d.id, sec: '다음 액션', ic: 'bi-flag', c: n < 0 ? '#dc2626' : '#ea580c',
       t: custName(d.custId) + ' · ' + money(d.amount) + '원',
       sub: d.nextAction + (n < 0 ? ' (' + (-n) + '일 지연)' : ' (오늘)'),
       go: "openDrawer('" + d.id + "')", urgent: true });
   });
   DB.equipments.forEach(e => {
     const n = dDays(e.warrantyEnd);
-    if (n != null && n >= 0 && n <= 90) out.push({ sec: '보증 만료 임박', ic: 'bi-shield-exclamation', c: '#ea580c',
+    if (n != null && n >= 0 && n <= 90) out.push({ key: 'eq-warr-' + e.id, sec: '보증 만료 임박', ic: 'bi-shield-exclamation', c: '#ea580c',
       t: custName(e.custId) + ' · ' + e.model, sub: 'D-' + n + ' (' + fmtDate(e.warrantyEnd) + ')', go: "showPage('equipments')" });
-    if (e.status === '수리중') out.push({ sec: 'A/S 진행', ic: 'bi-tools', c: '#dc2626',
+    if (e.status === '수리중') out.push({ key: 'eq-as-' + e.id, sec: 'A/S 진행', ic: 'bi-tools', c: '#dc2626',
       t: custName(e.custId) + ' · ' + e.model, sub: '수리중 — 진행 확인 필요', go: "showPage('equipments')" });
   });
   DB.customers.forEach(c => {
     if (c.grade !== 'A' && c.grade !== 'B') return;
     const last = DB.logs.filter(l => l.custId === c.id).map(l => l.date).sort().pop();
     const gap = last ? -dDays(last) : null;
-    if (gap == null || gap > 60) out.push({ sec: '장기 미접촉', ic: 'bi-person-dash', c: '#7c3aed',
+    if (gap == null || gap > 60) out.push({ key: 'cust-gap-' + c.id, sec: '장기 미접촉', ic: 'bi-person-dash', c: '#7c3aed',
       t: c.name + ' (' + c.grade + '등급)', sub: last ? gap + '일간 접촉 없음' : '접촉 이력 없음',
       go: "openCustDetail('" + c.id + "')" });
   });
   return out;
 }
+/* 알림 확인(읽음) 상태 — 계정별로 저장한다(로그인 계정 id 기준이라 브라우저·기기를 바꿔도 동일하게 적용됨).
+   알림 자체는 저장된 레코드가 아니라 매번 현재 상태로 다시 계산되므로,
+   '읽음' 대신 '이 알림을 마지막으로 봤을 때 있었다' 는 키 목록을 남겨 배지에서만 뺀다. */
+const bellSeenKey = () => 'urolink_bell_seen_' + ((ME && (ME.id || ME.email)) || 'local');
+function getBellSeen() {
+  try { return new Set(JSON.parse(localStorage.getItem(bellSeenKey()) || '[]')); } catch (e) { return new Set(); }
+}
+function setBellSeen(keys) {
+  try { localStorage.setItem(bellSeenKey(), JSON.stringify([...keys])); } catch (e) {}
+}
 function renderBell() {
   if (!DB) return;
   const items = alertItems();
-  const urgent = items.filter(x => x.urgent).length;
+  const seen = getBellSeen();
+  const unseen = items.filter(x => !seen.has(x.key));
+  const urgent = unseen.filter(x => x.urgent).length;
   const badge = $('bell-badge');
   if (badge) {
-    badge.textContent = urgent || items.length || '';
-    badge.style.display = (urgent || items.length) ? 'inline-block' : 'none';
+    badge.textContent = urgent || unseen.length || '';
+    badge.style.display = (urgent || unseen.length) ? 'inline-block' : 'none';
     badge.style.background = urgent ? '#dc2626' : '#94a3b8';
   }
   const body = $('bp-body'), cnt = $('bp-count');
@@ -581,7 +593,7 @@ function renderBell() {
   items.forEach(x => { if (!secs.includes(x.sec)) secs.push(x.sec); });
   body.innerHTML = secs.map(sc => '<div class="bp-sec">' + esc(sc) + '</div>'
     + items.filter(x => x.sec === sc).slice(0, 8).map(x =>
-      '<div class="bp-item" onclick="closeBell();' + x.go + '">'
+      '<div class="bp-item' + (seen.has(x.key) ? '' : ' new') + '" onclick="closeBell();' + x.go + '">'
       + '<i class="bi ' + x.ic + '" style="color:' + x.c + '"></i>'
       + '<div style="flex:1;min-width:0"><div class="bp-t">' + esc(x.t) + '</div>'
       + '<div class="bp-s">' + esc(x.sub) + '</div></div></div>').join('')).join('');
@@ -592,6 +604,10 @@ function toggleBell() {
   if (p.classList.contains('on')) { p.classList.remove('on'); return; }
   renderBell();
   p.classList.add('on');
+  /* 펼쳐서 봤으면 지금 뜬 알림은 전부 확인 처리 — 배지 숫자가 사라진다.
+     새로 생기는 알림(키가 다른)만 다음부터 다시 카운트된다. */
+  setBellSeen(new Set(alertItems().map(x => x.key)));
+  renderBell();
 }
 function closeBell() { const p = $('bell-panel'); if (p) p.classList.remove('on'); }
 

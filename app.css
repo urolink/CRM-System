@@ -602,6 +602,7 @@ body.locked>.main,body.locked>.sidebar,body.locked>#m-bottomnav,body.locked>#pdf
 #bell-panel .bp-sec{font-size:10px;font-weight:800;letter-spacing:.06em;color:#94a3b8;padding:8px 12px 3px;text-transform:uppercase}
 #bell-panel .bp-item{display:flex;gap:8px;align-items:flex-start;padding:7px 12px;cursor:pointer;border-bottom:1px solid #f6f8fa}
 #bell-panel .bp-item:hover{background:#f0fafc}
+#bell-panel .bp-item.new .bp-t::after{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#0e7490;margin-left:6px;vertical-align:middle}
 #bell-panel .bp-item i{font-size:13px;flex-shrink:0;margin-top:1px}
 #bell-panel .bp-t{font-size:12px;font-weight:700;color:#182230;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #bell-panel .bp-s{font-size:10.5px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
