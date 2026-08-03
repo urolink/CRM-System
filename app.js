@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731q';
+const APP_VERSION = '20260731r';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -115,6 +115,15 @@ const cacheKey = () => isRemote() ? LS_KEY + '_cache' : LS_KEY;
 function ensureAdmin() {
   if (isAdmin()) return true;
   alert('삭제는 관리자만 할 수 있습니다.\n필요하면 관리자에게 요청해주세요.');
+  return false;
+}
+/* 고객사·타겟병원·일정·딜·상담일지·견적서·장비는 관리자 뿐 아니라
+   본인이 작성한 것도 스스로 지울 수 있다 — 전부 관리자에게 요청해야 하면 병목이 된다.
+   (제품·담당자·로그인 계정처럼 여러 사람이 같이 쓰는 마스터 데이터는 계속 관리자 전용) */
+const isOwner = row => !!(row && ME && row.createdById && row.createdById === ME.id);
+function ensureAdminOrOwner(row, label) {
+  if (isAdmin() || isOwner(row)) return true;
+  alert(`${label || '이 항목'}은(는) 작성자 본인 또는 관리자만 삭제할 수 있습니다.`);
   return false;
 }
 function blankDB() {
@@ -1352,7 +1361,7 @@ function saveSale(keepOpen) {
     if (!ex.src) ex.src = 'pipeline';   // 출처 표기만 명시, direct 로 바꾸지 않음
     auditDiff('deals', id, before, ex, custName(ex.custId));
   } else {
-    DB.deals.push(Object.assign({ id: uid(), createdAt: today(), nextAction: '', nextActionDate: '', src: 'direct' }, row));
+    DB.deals.push(Object.assign({ id: uid(), createdAt: today(), nextAction: '', nextActionDate: '', src: 'direct', createdById: ME && ME.id }, row));
   }
   save();
   if (keepOpen) {
@@ -1368,9 +1377,12 @@ function saveSale(keepOpen) {
   if (CUR_PAGE === 'mix') renderMix(); else if (RENDER[CUR_PAGE]) RENDER[CUR_PAGE]();
 }
 function deleteSale() {
-  if (!ensureAdmin()) return;
   const id = $('sl-id').value;
-  if (!id || !confirm('이 매출 건을 삭제할까요?')) return;
+  const d = id ? DB.deals.find(x => x.id === id) : null;
+  if (!d) return;
+  if (!ensureAdminOrOwner(d, '매출')) return;
+  if (!confirm('이 매출 건을 삭제할까요?')) return;
+  auditLog('deals', id, '삭제', custName(d.custId) + ' · ' + (d.product || ''), comma(d.amount) + '원');
   DB.deals = DB.deals.filter(x => x.id !== id);
   save();
   bootstrap.Modal.getInstance($('saleModal')).hide();
@@ -1662,6 +1674,20 @@ function auditDiff(coll, id, before, after, label) {
   DB.audits.push({
     id: uid(), coll: coll, refId: id, label: label || '',
     at: nowStamp(), by: curUserName() || '(로컬)', chg: chg
+  });
+  if (DB.audits.length > AUDIT_KEEP) DB.audits = DB.audits.slice(-AUDIT_KEEP);
+}
+/* auditDiff 는 딜의 특정 필드 변경만 남긴다. 삭제처럼 필드 전/후 비교로 표현이
+   안 되는 사건(누가 뭘 지웠는지)은 이 범용 로그로 남긴다.
+   작성자 본인도 삭제할 수 있게 되면서, 다른 사람은 왜 없어졌는지 알 방법이
+   없어지므로 — 관리자가 사용자 관리의 '기록 변경 내역'에서 이걸 본다. */
+const COLL_LABEL = { customers: '고객사', prospects: '타겟병원', schedules: '일정', deals: '딜',
+  logs: '상담일지', quotes: '견적서', equipments: '장비' };
+function auditLog(coll, id, action, label, detail) {
+  if (!DB.audits) DB.audits = [];
+  DB.audits.push({
+    id: uid(), coll, refId: id, label: label || '', action, detail: detail || '',
+    at: nowStamp(), by: curUserName() || '(로컬)'
   });
   if (DB.audits.length > AUDIT_KEEP) DB.audits = DB.audits.slice(-AUDIT_KEEP);
 }
@@ -2720,7 +2746,7 @@ function saveDeal() {
     if ((row.stage === '계약완료' || row.stage === '실주') && !d.closedAt) d.closedAt = today();
     auditDiff('deals', id, before, d, custName(d.custId));
   } else {
-    DB.deals.push(Object.assign({ id: uid(), createdAt: today(), closedAt: '' }, row));
+    DB.deals.push(Object.assign({ id: uid(), createdAt: today(), closedAt: '', createdById: ME && ME.id }, row));
   }
   save();
   bootstrap.Modal.getInstance($('dealModal')).hide();
@@ -2734,13 +2760,15 @@ function deleteDeal() {
 }
 /* 상세 패널(드로어)에서도 삭제할 수 있어야 한다 — 수정 모달을 거치지 않고 바로 */
 function deleteDealById(id) {
-  if (!ensureAdmin()) return false;
   const d = DB.deals.find(x => x.id === id);
   if (!d) return false;
+  if (!ensureAdminOrOwner(d, '딜')) return false;
   if (!confirm('[' + custName(d.custId) + ' · ' + (d.product || '') + ' · ' + comma(d.amount) + '원] 딜을 삭제할까요?'
     /* 계약완료 딜은 매출로 집계되므로 삭제하면 실적 수치가 함께 내려간다 */
     + (d.stage === '계약완료' ? NL + '⚠ 계약완료 딜입니다. 삭제하면 매출 집계에서도 빠집니다.' : '')
     + NL + '되돌릴 수 없습니다.')) return false;
+  auditLog('deals', id, '삭제', custName(d.custId) + ' · ' + (d.product || ''),
+    comma(d.amount) + '원 · ' + (d.stage || ''));
   DB.deals = DB.deals.filter(x => x.id !== id);
   save();
   renderSales();
@@ -2803,14 +2831,18 @@ function saveLog() {
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value };
   const id = $('l-id').value;
   if (id) Object.assign(DB.logs.find(x => x.id === id), row);
-  else DB.logs.push(Object.assign({ id: uid() }, row));
+  else DB.logs.push(Object.assign({ id: uid(), createdById: ME && ME.id }, row));
   save();
   bootstrap.Modal.getInstance($('logModal')).hide();
   if (CUR_PAGE === 'sales') renderLogs(); else RENDER[CUR_PAGE]();
 }
 function deleteLog() {
-  if (!ensureAdmin()) return;
-  const id = $('l-id').value; if (!id || !confirm('이 일지를 삭제할까요?')) return;
+  const id = $('l-id').value;
+  const l = id ? DB.logs.find(x => x.id === id) : null;
+  if (!l) return;
+  if (!ensureAdminOrOwner(l, '상담일지')) return;
+  if (!confirm('이 일지를 삭제할까요?')) return;
+  auditLog('logs', id, '삭제', logCustLabel(l), (l.content || '').slice(0, 60));
   DB.logs = DB.logs.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('logModal')).hide(); renderLogs();
 }
@@ -3315,7 +3347,7 @@ function saveSch() {
   const id = $('s-id').value;
   let cur;
   if (id) { cur = DB.schedules.find(x => x.id === id); Object.assign(cur, row); }
-  else { cur = Object.assign({ id: uid() }, row); DB.schedules.push(cur); }
+  else { cur = Object.assign({ id: uid(), createdById: ME && ME.id }, row); DB.schedules.push(cur); }
   if (prospectId) {
     const pr = prospectById(prospectId);
     if (pr) { pr.status = '일정등록완료'; pr.updatedAt = today(); }
@@ -3359,8 +3391,12 @@ function saveSch() {
   RENDER[CUR_PAGE]();
 }
 function deleteSch() {
-  if (!ensureAdmin()) return;
-  const id = $('s-id').value; if (!id || !confirm('이 일정을 삭제할까요?')) return;
+  const id = $('s-id').value;
+  const s = id ? DB.schedules.find(x => x.id === id) : null;
+  if (!s) return;
+  if (!ensureAdminOrOwner(s, '일정')) return;
+  if (!confirm('이 일정을 삭제할까요?')) return;
+  auditLog('schedules', id, '삭제', schCustLabel(s) + ' · ' + s.type, s.title || '');
   DB.schedules = DB.schedules.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('schModal')).hide(); RENDER[CUR_PAGE]();
 }
@@ -3512,15 +3548,19 @@ function saveQuote(doPrint) {
   const id = $('q-id').value;
   let qid = id;
   if (id) Object.assign(DB.quotes.find(x => x.id === id), row);
-  else { qid = uid(); DB.quotes.push(Object.assign({ id: qid, no: nextQuoteNo() }, row)); }
+  else { qid = uid(); DB.quotes.push(Object.assign({ id: qid, no: nextQuoteNo(), createdById: ME && ME.id }, row)); }
   save();
   bootstrap.Modal.getInstance($('quoteModal')).hide();
   renderQuotes();
   if (doPrint) setTimeout(() => printQuote(qid), 350);
 }
 function deleteQuote() {
-  if (!ensureAdmin()) return;
-  const id = $('q-id').value; if (!id || !confirm('이 견적서를 삭제할까요?')) return;
+  const id = $('q-id').value;
+  const q = id ? DB.quotes.find(x => x.id === id) : null;
+  if (!q) return;
+  if (!ensureAdminOrOwner(q, '견적서')) return;
+  if (!confirm('이 견적서를 삭제할까요?')) return;
+  auditLog('quotes', id, '삭제', q.no + ' · ' + custName(q.custId), '');
   DB.quotes = DB.quotes.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('quoteModal')).hide(); renderQuotes();
 }
@@ -3884,17 +3924,19 @@ function saveCust() {
     updatedAt: today(), updatedBy: curUserName() };
   const id = $('c-id').value;
   if (id) Object.assign(custById(id), row);
-  else DB.customers.push(Object.assign({ id: uid(), createdAt: today() }, row));
+  else DB.customers.push(Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row));
   save();
   bootstrap.Modal.getInstance($('custModal')).hide();
   renderCustomers();
 }
 function deleteCust() {
-  if (!ensureAdmin()) return;
   const id = $('c-id').value; if (!id) return;
+  const c = custById(id);
+  if (!ensureAdminOrOwner(c, '고객사')) return;
   const n = DB.deals.filter(d => d.custId === id).length + DB.equipments.filter(e => e.custId === id).length;
   if (!confirm(`이 고객사를 삭제할까요?${n ? `\n연결된 딜·장비 ${n}건은 남습니다.` : ''}`)) return;
-  DB.customers = DB.customers.filter(c => c.id !== id);
+  auditLog('customers', id, '삭제', c ? c.name : '', '');
+  DB.customers = DB.customers.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('custModal')).hide(); renderCustomers();
 }
 
@@ -4300,16 +4342,18 @@ function saveProspect() {
     updatedAt: today(), updatedBy: curUserName() };
   const id = $('pr-id').value;
   if (id) Object.assign(prospectById(id), row);
-  else DB.prospects.push(Object.assign({ id: uid(), createdAt: today() }, row));
+  else DB.prospects.push(Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row));
   save();
   bootstrap.Modal.getInstance($('prospectModal')).hide();
   renderProspects();
 }
 function deleteProspect() {
-  if (!ensureAdmin()) return;
   const id = $('pr-id').value; if (!id) return;
+  const p = prospectById(id);
+  if (!ensureAdminOrOwner(p, '타겟병원')) return;
   if (!confirm('이 타겟병원을 삭제할까요?')) return;
-  DB.prospects = DB.prospects.filter(p => p.id !== id);
+  auditLog('prospects', id, '삭제', p ? p.name : '', '');
+  DB.prospects = DB.prospects.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('prospectModal')).hide(); renderProspects();
 }
 /* 고객사로 전환 — 타겟병원 정보를 그대로 고객사에 옮기고, 아직 계약 안 된 목록에서는 뺀다 */
@@ -4446,14 +4490,18 @@ function saveEquip() {
     memo: $('e-memo').value.trim(), as: AS_TMP.slice() };
   const id = $('e-id').value;
   if (id) Object.assign(DB.equipments.find(x => x.id === id), row);
-  else DB.equipments.push(Object.assign({ id: uid() }, row));
+  else DB.equipments.push(Object.assign({ id: uid(), createdById: ME && ME.id }, row));
   save();
   bootstrap.Modal.getInstance($('equipModal')).hide();
   renderEquip();
 }
 function deleteEquip() {
-  if (!ensureAdmin()) return;
-  const id = $('e-id').value; if (!id || !confirm('이 장비를 삭제할까요?')) return;
+  const id = $('e-id').value;
+  const e = id ? DB.equipments.find(x => x.id === id) : null;
+  if (!e) return;
+  if (!ensureAdminOrOwner(e, '장비')) return;
+  if (!confirm('이 장비를 삭제할까요?')) return;
+  auditLog('equipments', id, '삭제', custName(e.custId) + ' · ' + (e.model || ''), e.serial || '');
   DB.equipments = DB.equipments.filter(x => x.id !== id);
   save(); bootstrap.Modal.getInstance($('equipModal')).hide(); renderEquip();
 }
@@ -5154,6 +5202,36 @@ function deleteRep(name) {
   refreshSelects();
   if (CUR_PAGE === 'analysis') renderAnalysis();
 }
+/* 기록 변경 내역 — 작성자 본인이 지운 것도 다른 사람은 알 방법이 없으므로 관리자가 여기서 본다.
+   딜의 금액·단계 변경(chg)과 삭제(action) 두 가지 모양이 섞여 있어 함께 표에 낸다. */
+function renderAuditMgmt() {
+  const box = $('audit-list');
+  if (!box) return;
+  const q = trimv(($('au-search') || {}).value).toLowerCase();
+  let list = (DB.audits || []).slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  if (q) list = list.filter(a => ((a.by || '') + ' ' + (a.label || '')).toLowerCase().includes(q));
+  list = list.slice(0, 400);
+  if (!list.length) {
+    box.innerHTML = '<div class="p-3" style="color:#94a3b8;font-size:12.5px">변경 이력이 없습니다</div>';
+    return;
+  }
+  box.innerHTML = '<div style="overflow-x:auto"><table class="table u-t mb-0">'
+    + '<thead><tr><th>시각</th><th>변경자</th><th>종류</th><th>대상</th><th>내용</th></tr></thead><tbody>'
+    + list.map(a => {
+        const detail = a.action
+          ? '<span class="badge" style="background:#fef2f2;color:#dc2626">' + esc(a.action) + '</span> ' + esc(a.detail || '')
+          : (a.chg || []).map(c => {
+              const def = AUDIT_FIELDS[c.f] || { l: c.f, fmt: v => String(v) };
+              return esc(def.l) + ' ' + esc(def.fmt(c.from)) + '→' + esc(def.fmt(c.to));
+            }).join(', ');
+        return '<tr><td style="font-size:12px;white-space:nowrap">' + esc(a.at) + '</td>'
+          + '<td class="fw-bold">' + esc(a.by || '-') + '</td>'
+          + '<td style="font-size:12px;color:#64748b">' + esc(COLL_LABEL[a.coll] || a.coll) + '</td>'
+          + '<td style="font-size:12.5px">' + esc(a.label || '-') + '</td>'
+          + '<td style="font-size:12px">' + detail + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
 async function renderUsers() {
   const card = $('usermgmt-card');
   if (!card) return;
@@ -5161,6 +5239,9 @@ async function renderUsers() {
   const repCard = $('repmgmt-card');
   if (repCard) repCard.style.display = isAdmin() ? 'block' : 'none';
   if (isAdmin()) renderRepMgmt();
+  const auCard = $('auditmgmt-card');
+  if (auCard) auCard.style.display = isAdmin() ? 'block' : 'none';
+  if (isAdmin()) renderAuditMgmt();
   if (!isRemote() || !isAdmin()) {
     card.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
