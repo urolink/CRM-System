@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260731r" rel="stylesheet">
-<script src="config.js?v=20260731r"></script>
+<link href="app.css?v=20260731s" rel="stylesheet">
+<script src="config.js?v=20260731s"></script>
 </head>
 <body>
 
@@ -949,7 +949,7 @@
     <input type="hidden" id="s-prospect-id">
     <div class="row g-4">
       <!-- 왼쪽: 일정 -->
-      <div class="col-lg-5">
+      <div class="col-lg-5" id="sch-left-col">
         <div class="wt-st"><i class="bi bi-calendar-event me-1"></i>일정</div>
         <div class="row g-3">
           <div class="col-7"><label class="form-label">일자 *</label><input type="date" class="form-control" id="s-date"></div>
@@ -972,7 +972,7 @@
       </div>
 
       <!-- 오른쪽: 방문 결과 -->
-      <div class="col-lg-7" style="border-left:1px solid var(--border)">
+      <div class="col-lg-7" id="sch-result-col" style="border-left:1px solid var(--border)">
         <div class="wt-st"><i class="bi bi-clipboard-check me-1"></i>방문 결과
           <span style="font-size:11px;font-weight:500;color:#94a3b8">· 다녀온 뒤 채우면 자동으로 완료 처리됩니다</span></div>
 
@@ -1299,6 +1299,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260731r"></script>
+<script src="app.js?v=20260731s"></script>
 </body>
 </html>

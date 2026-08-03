@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731r';
+const APP_VERSION = '20260731s';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3312,6 +3312,12 @@ function openSchModal(id, preDate, forceProspectId) {
   }
   SCI_OPEN = true;
   schCustPeek();
+  /* 타겟병원 아이콘으로 새 방문 예정을 잡을 때는 아직 다녀오지 않았으니
+     '방문 결과' 칸이 필요 없다 — 나중에 이 일정을 다시 열어 결과를 적을 때는
+     (s 가 있는 수정 상태) prospectId 가 남아있어도 전체 폼을 그대로 보여준다. */
+  const hideResult = !!(forceProspectId && !s);
+  $('sch-result-col').style.display = hideResult ? 'none' : '';
+  $('sch-left-col').className = hideResult ? 'col-lg-12' : 'col-lg-5';
   new bootstrap.Modal($('schModal')).show();
 }
 /* 타겟병원 목록의 '일정 등록' 아이콘 — 고객사로 전환하지 않고, 방문 예정 일정만 잡는다.
