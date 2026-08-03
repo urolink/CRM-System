@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260731v" rel="stylesheet">
-<script src="config.js?v=20260731v"></script>
+<link href="app.css?v=20260731w" rel="stylesheet">
+<script src="config.js?v=20260731w"></script>
 </head>
 <body>
 
@@ -410,7 +410,10 @@
   <div id="page-prospects" class="page">
     <div class="wt-mast">
       <div><div class="kick">UROLINK PROSPECTS</div><div class="t"><i class="bi bi-geo-alt me-2"></i>타겟병원</div></div>
-      <button class="btn btn-primary btn-sm" onclick="openProspectModal()"><i class="bi bi-plus-lg me-1"></i>타겟병원 추가</button>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="printProspectList()"><i class="bi bi-printer me-1"></i>인쇄</button>
+        <button class="btn btn-primary btn-sm" onclick="openProspectModal()"><i class="bi bi-plus-lg me-1"></i>타겟병원 추가</button>
+      </div>
     </div>
     <div class="wt-band" id="prospect-band"></div>
     <div class="d-flex gap-2 mb-2 flex-wrap">
@@ -433,6 +436,7 @@
         <button class="btn btn-outline-warning btn-sm" onclick="openDupModal()" id="dup-btn"><i class="bi bi-intersect me-1"></i>중복 검사</button>
         <button class="btn btn-outline-success btn-sm" onclick="openImportModal('customers')"><i class="bi bi-upload me-1"></i>가져오기</button>
         <button class="btn btn-outline-secondary btn-sm" onclick="exportCustomers()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="printCustomerList()"><i class="bi bi-printer me-1"></i>인쇄</button>
         <button class="btn btn-primary btn-sm" onclick="openCustModal()"><i class="bi bi-plus-lg me-1"></i>고객사 추가</button>
       </div>
     </div>
@@ -1299,6 +1303,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260731v"></script>
+<script src="app.js?v=20260731w"></script>
 </body>
 </html>

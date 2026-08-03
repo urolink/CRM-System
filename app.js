@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731v';
+const APP_VERSION = '20260731w';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3773,6 +3773,92 @@ function printLogReport(id) {
     + html + '</body></html>');
   win.document.close();
   win.focus();
+}
+
+/* ══ 목록 인쇄 (고객사·타겟병원) — 화면의 카드·필터 그대로 인쇄하면 지저분해서
+   화면에 보이는 필터가 적용된 행만 깔끔한 표로 새 창에 띄운다 ══ */
+const LIST_CSS = `
+  *{box-sizing:border-box}
+  body{font-family:'Noto Sans KR',sans-serif;margin:0;background:#fff;color:#182230;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4 landscape;margin:12mm}
+  .lp{padding:10mm 14mm}
+  .lp-head{display:flex;align-items:center;gap:14px;padding-bottom:12px;margin-bottom:14px;border-bottom:2px solid #16324f}
+  .lp-logo{height:28px;width:auto}
+  .lp-title{font-size:20px;font-weight:800;color:#16324f}
+  .lp-meta{margin-left:auto;font-size:11.5px;color:#64748b;text-align:right}
+  .lp-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+  .lp-tbl th{background:#16324f;color:#fff;padding:7px 8px;text-align:left;white-space:nowrap}
+  .lp-tbl td{border-bottom:1px solid #e4e8ef;padding:6px 8px;vertical-align:top}
+  .lp-tbl tbody tr:nth-child(even) td{background:#fafbfc}
+  .lp-bar{position:sticky;top:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;
+    padding:10px 14mm;background:#f8fafc;border-bottom:1px solid #dbe3ec}
+  .lp-bar button{border:0;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;
+    background:#0e7490;color:#fff}
+  .lp-bar button:hover{background:#0c5f76}
+  @media print{.lp-bar{display:none}}
+`;
+function listReportHTML(title, headers, rows) {
+  const logoUrl = new URL('logo.png', location.href).href;
+  return '<div class="lp">'
+    + '<div class="lp-head"><img src="' + esc(logoUrl) + '" class="lp-logo" alt="UroLink">'
+      + '<div class="lp-title">' + esc(title) + '</div>'
+      + '<div class="lp-meta">총 ' + rows.length + '건<br>' + esc(fmtDate(today())) + ' 출력</div></div>'
+    + '<table class="lp-tbl"><thead><tr>' + headers.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr></thead>'
+    + '<tbody>' + (rows.length
+        ? rows.map(r => '<tr>' + r.map(v => '<td>' + esc(v == null || v === '' ? '-' : v) + '</td>').join('') + '</tr>').join('')
+        : '<tr><td colspan="' + headers.length + '" style="text-align:center;color:#94a3b8;padding:20px">표시할 항목이 없습니다</td></tr>')
+    + '</tbody></table></div>';
+}
+function openListPrint(title, bodyHtml) {
+  const win = window.open('', '_blank');
+  if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+  win.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>' + esc(title) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">'
+    + '<style>' + LIST_CSS + '</style></head><body>'
+    + '<div class="lp-bar"><button onclick="window.print()">🖨 인쇄 · PDF 저장</button></div>'
+    + bodyHtml + '</body></html>');
+  win.document.close();
+  win.focus();
+}
+/* 화면에 걸린 필터를 그대로 반영해서 인쇄한다 — renderCustomers() 의 필터 로직과 동일 */
+function printCustomerList() {
+  const q = ($('c-search').value || '').trim().toLowerCase();
+  const g = $('c-grade').value, rep = $('c-rep').value, rg = $('c-region').value;
+  const rows = DB.customers.filter(c => {
+    if (g && c.grade !== g) return false;
+    if (rep && c.rep !== rep) return false;
+    if (rg && c.sido !== rg) return false;
+    if (C_TAG && !(c.tags || []).map(t => String(t).trim()).includes(C_TAG)) return false;
+    if (q) {
+      const ct = (c.contacts || []).map(x => (x.name || '') + ' ' + (x.phone || '') + ' ' + (x.role || '')).join(' ');
+      return (c.name + ' ' + (c.doctor || '') + ' ' + (c.sido || '') + (c.gugun || '') + ' ' + (c.rep || '')
+        + ' ' + (c.tags || []).join(' ') + ' ' + (c.phone || '') + ' ' + (c.addr || '') + ' ' + ct).toLowerCase().includes(q);
+    }
+    return true;
+  }).sort((a, b) => custWonAmount(b.id) - custWonAmount(a.id));
+  const html = listReportHTML('고객사 목록',
+    ['고객사명', '구분', '원장/담당', '지역', '연락처', '담당영업', '등급', '누적수주', '태그'],
+    rows.map(c => [c.name, c.type, c.doctor, ((c.sido || '') + ' ' + (c.gugun || '')).trim(), c.phone,
+      c.rep, c.grade, comma(custWonAmount(c.id)) + '원', (c.tags || []).join(', ')]));
+  openListPrint('고객사 목록', html);
+}
+/* 화면에 걸린 필터를 그대로 반영해서 인쇄한다 — renderProspects() 의 필터 로직과 동일 */
+function printProspectList() {
+  const q = trimv(($('pr-search') || {}).value).toLowerCase();
+  const st = ($('pr-status') || {}).value, rep = ($('pr-rep') || {}).value, rg = ($('pr-region') || {}).value;
+  const rows = DB.prospects.filter(p => {
+    if (st && p.status !== st) return false;
+    if (rep && p.rep !== rep) return false;
+    if (rg && p.sido !== rg) return false;
+    if (q) return (p.name + ' ' + (p.dept || '') + ' ' + (p.sido || '') + (p.gugun || '') + ' '
+      + (p.rep || '') + ' ' + (p.interest || '') + ' ' + (p.phone || '')).toLowerCase().includes(q);
+    return true;
+  }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const html = listReportHTML('타겟병원 목록',
+    ['병원명', '구분', '진료과', '지역', '담당자', '상태', '관심장비', '다음 액션'],
+    rows.map(p => [p.name, p.type, p.dept, ((p.sido || '') + ' ' + (p.gugun || '')).trim(), p.rep, p.status,
+      p.interest, p.nextAction ? p.nextAction + (p.nextActionDate ? ' · ' + fmtDate(p.nextActionDate) : '') : '']));
+  openListPrint('타겟병원 목록', html);
 }
 /* ───────────────────────── 10. 고객사 ───────────────────────── */
 let C_TAG = '';
