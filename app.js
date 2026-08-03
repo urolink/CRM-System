@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731u';
+const APP_VERSION = '20260731v';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -5238,7 +5238,7 @@ function renderAuditMgmt() {
     return;
   }
   box.innerHTML = '<div style="overflow-x:auto"><table class="table u-t mb-0">'
-    + '<thead><tr><th>시각</th><th>변경자</th><th>종류</th><th>대상</th><th>내용</th></tr></thead><tbody>'
+    + '<thead><tr><th>시각</th><th>변경자</th><th>종류</th><th>대상</th><th>내용</th><th></th></tr></thead><tbody>'
     + list.map(a => {
         const detail = a.action
           ? '<span class="badge" style="background:#fef2f2;color:#dc2626">' + esc(a.action) + '</span> ' + esc(a.detail || '')
@@ -5250,9 +5250,19 @@ function renderAuditMgmt() {
           + '<td class="fw-bold">' + esc(a.by || '-') + '</td>'
           + '<td style="font-size:12px;color:#64748b">' + esc(COLL_LABEL[a.coll] || a.coll) + '</td>'
           + '<td style="font-size:12.5px">' + esc(a.label || '-') + '</td>'
-          + '<td style="font-size:12px">' + detail + '</td></tr>';
+          + '<td style="font-size:12px">' + detail + '</td>'
+          + '<td class="text-end"><button class="u-ib rd" onclick="deleteAudit(&#39;' + jsq(a.id) + '&#39;)" title="이 기록 삭제">'
+            + '<i class="bi bi-trash"></i></button></td></tr>';
       }).join('')
     + '</tbody></table></div>';
+}
+/* 기록 변경 내역 개별 삭제 — 잘못 남았거나 더 이상 필요 없는 이력을 관리자가 정리할 때 */
+function deleteAudit(id) {
+  if (!ensureAdmin()) return;
+  if (!confirm('이 변경 이력을 삭제할까요?')) return;
+  DB.audits = (DB.audits || []).filter(a => a.id !== id);
+  save();
+  renderAuditMgmt();
 }
 async function renderUsers() {
   const card = $('usermgmt-card');
