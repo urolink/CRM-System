@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731n';
+const APP_VERSION = '20260731o';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -133,6 +133,8 @@ function fixShape() {
   (DB.deals || []).forEach(d => {
     if (!d.cat) { const p = prodByCode(d.productCode); if (p) d.cat = p.cat; }
   });
+  /* 담당자의 영업부서 여부 — 기존 담당자는 전부 영업으로 간주(관리자가 사용자 관리에서 끌 수 있음) */
+  (DB.reps || []).forEach(r => { if (r.salesDept == null) r.salesDept = true; });
 }
 /* 선택적 테이블(목표·이력)만 있는 상태를 '데이터 있음' 으로 오판하지 않게 제외한다 */
 const isEmptyDB = () => Object.keys(TABLES)
@@ -297,6 +299,8 @@ const custById  = id => DB.customers.find(c => c.id === id);
 const prodByCode = c => DB.products.find(p => p.code === c);
 const custName  = id => { const c = custById(id); return c ? c.name : '(삭제된 고객사)'; };
 const repNames  = () => DB.reps.map(r => r.name);
+/* 영업 분석 화면 전용 — 담당자 관리에서 '영업부서'로 켜둔 사람만. 데이터 자체는 안 지운다 */
+const salesRepNames = () => DB.reps.filter(r => r.salesDept !== false).map(r => r.name);
 
 /* 고객사 누적 수주액 */
 function custWonAmount(id) {
@@ -1913,7 +1917,7 @@ function renderActivityTab(y, a, b, wonD) {
   const sch = DB.schedules.filter(x => inRange(x.date, a, b));
   const logs = DB.logs.filter(x => inRange(x.date, a, b));
   const doneSch = sch.filter(x => x.done);
-  const reps = [...new Set([...repNames(), ...sch.map(x => x.rep).filter(Boolean), ...logs.map(x => x.rep).filter(Boolean)])];
+  const reps = salesRepNames();
 
   const stats = reps.map(r => {
     const ms = sch.filter(x => x.rep === r);
@@ -4530,7 +4534,7 @@ function renderAnalysis() {
   } else if (ANA_TAB === 'activity') {
     $('ana-body').innerHTML = renderActivityTab(y, a, b, wonD);
   } else if (ANA_TAB === 'rep') {
-    const reps = [...new Set([...repNames(), ...inP.map(d => d.rep).filter(Boolean)])];
+    const reps = salesRepNames();
     const stats = reps.map(r => {
       const w = wonD.filter(d => d.rep === r), l = lostD.filter(d => d.rep === r);
       const o = DB.deals.filter(d => d.rep === r && OPEN_STAGES.includes(d.stage));
@@ -5073,10 +5077,52 @@ function userTab(on, el) {
   if (el) el.classList.add('on');
   paintUsers();
 }
+/* 담당자 관리 — 영업 분석 담당자별 화면에 누구를 보여줄지 고른다.
+   끄는 건 화면 표시만 빼는 것이고, 그 사람 이름으로 남은 딜·일정·상담일지는 그대로 있다. */
+function renderRepMgmt() {
+  const box = $('rep-list');
+  if (!box) return;
+  const reps = [...DB.reps].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  box.innerHTML = reps.length ? '<div style="overflow-x:auto"><table class="table u-t mb-0">'
+    + '<thead><tr><th>이름</th><th>역할</th><th>영업 분석 표시</th><th></th></tr></thead><tbody>'
+    + reps.map(r => '<tr><td class="fw-bold">' + esc(r.name) + '</td>'
+      + '<td style="font-size:12.5px;color:#64748b">' + esc(r.role || '-') + '</td>'
+      + '<td><button class="u-ib' + (r.salesDept !== false ? ' ex' : '') + '" onclick="toggleRepSales(&#39;' + jsq(r.name) + '&#39;)"'
+        + ' title="' + (r.salesDept !== false ? '영업 분석에 표시 중 — 눌러서 제외' : '영업 분석에서 제외됨 — 눌러서 표시') + '">'
+        + '<i class="bi ' + (r.salesDept !== false ? 'bi-check-circle' : 'bi-slash-circle') + '"></i> '
+        + (r.salesDept !== false ? '영업부서' : '비영업') + '</button></td>'
+      + '<td class="text-end"><button class="u-ib rd" onclick="deleteRep(&#39;' + jsq(r.name) + '&#39;)" title="담당자 명단에서 삭제">'
+        + '<i class="bi bi-trash"></i></button></td></tr>').join('')
+    + '</tbody></table></div>'
+    : '<div class="p-3" style="color:#94a3b8;font-size:12.5px">등록된 담당자가 없습니다</div>';
+}
+function toggleRepSales(name) {
+  const r = DB.reps.find(x => x.name === name);
+  if (!r) return;
+  r.salesDept = r.salesDept === false ? true : false;
+  save();
+  renderRepMgmt();
+  if (CUR_PAGE === 'analysis') renderAnalysis();
+}
+/* 담당자 명단에서 완전히 삭제 — 딜·일정·상담일지에 남은 이름 텍스트는 지우지 않는다(기록 보존).
+   지운 뒤에도 그 이름을 담당자로 다시 입력하면 자동으로 재등록된다(resolveRep). */
+function deleteRep(name) {
+  if (!ensureAdmin()) return;
+  if (!DB.reps.some(r => r.name === name)) return;
+  if (!confirm(`담당자 '${name}'을(를) 명단에서 삭제할까요?\n이미 이 이름으로 남아있는 딜·일정·상담일지 기록은 지워지지 않습니다.`)) return;
+  DB.reps = DB.reps.filter(r => r.name !== name);
+  save();
+  renderRepMgmt();
+  refreshSelects();
+  if (CUR_PAGE === 'analysis') renderAnalysis();
+}
 async function renderUsers() {
   const card = $('usermgmt-card');
   if (!card) return;
   const addBtn = $('add-user-btn');
+  const repCard = $('repmgmt-card');
+  if (repCard) repCard.style.display = isAdmin() ? 'block' : 'none';
+  if (isAdmin()) renderRepMgmt();
   if (!isRemote() || !isAdmin()) {
     card.style.display = 'none';
     if (addBtn) addBtn.style.display = 'none';
