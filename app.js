@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731s';
+const APP_VERSION = '20260731t';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2861,6 +2861,8 @@ function schCustLabel(s) {
   if (s.prospectId) { const p = prospectById(s.prospectId); return p ? p.name + ' (타겟병원)' : '(삭제된 타겟병원)'; }
   return '내부';
 }
+/* 병원명 + 다음액션 후속 일정 여부 표시 — 목록·달력에서 일반 방문과 구분되도록 */
+const schLabel = s => schCustLabel(s) + (s.src === 'nextAction' ? ' (다음액션)' : '');
 function schWeekRange(ref) {
   const base = parseD(ref || today()) || new Date();
   const dow = (base.getDay() + 6) % 7;              /* 월요일 시작 */
@@ -2960,9 +2962,10 @@ function schMiniCard(s) {
     + ' onclick="event.stopPropagation();openSchModal(&#39;' + s.id + '&#39;)">'
     + '<div class="m-top"><span class="m-st" style="color:' + stColor + '">' + stText + '</span>'
       + (s.rep ? '<span class="m-rep">' + esc(s.rep) + '</span>' : '') + '</div>'
-    + '<div class="m-c">' + esc(schCustLabel(s)) + '</div>'
+    + '<div class="m-c">' + esc(schLabel(s)) + '</div>'
     + '<div class="m-s">' + (s.time ? esc(s.time) + ' · ' : '') + esc(s.type)
       + (s.grade ? ' · ' + esc(gradeLabel(s.grade)) : '') + '</div>'
+    + (s.src === 'nextAction' && s.title ? '<div class="m-s" style="color:#0e7490">' + esc(s.title) + '</div>' : '')
     + (done ? (s.result ? '<div class="m-s" style="color:#15803d;margin-top:2px">' + esc(s.result) + '</div>' : '')
             : '<div class="m-act"><i class="bi bi-pencil-square"></i>결과 입력</div>')
     + '</div>';
@@ -3012,7 +3015,7 @@ function schItemRow(s) {
     + '<span style="width:44px;flex-shrink:0;color:#64748b;font-weight:600">' + esc(s.time || '-') + '</span>'
     + '<span class="sc-type" style="background:' + c + '1a;color:' + c + '">' + esc(s.type) + '</span>'
     + '<span style="width:140px;flex-shrink:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-    + esc(schCustLabel(s)) + '</span>'
+    + esc(schLabel(s)) + '</span>'
     + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(s.title)
     + (s.grade ? ' <span class="sc-type" style="background:#f1f5f9;color:#475569">' + esc(gradeLabel(s.grade)) + '</span>' : '')
     + (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : '') + '</span>'
@@ -3045,7 +3048,7 @@ function schMonthView(items) {
       + '<div class="d ' + (dow === 6 ? 'sun' : dow === 5 ? 'sat' : '') + '">' + d + '</div>'
       + its.slice(0, 3).map(s => '<div class="cal-ev' + (s.done ? ' done' : '') + '" style="background:' + schCol(s.type)
         + '1f;color:' + schCol(s.type) + '">' + (s.done ? '\u2713 ' : '') + (s.time ? esc(s.time) + ' ' : '')
-        + esc(s.custId || s.prospectId ? schCustLabel(s) : s.title) + '</div>').join('')
+        + esc(s.custId || s.prospectId ? schLabel(s) : s.title) + '</div>').join('')
       + (its.length > 3 ? '<div class="cal-more">+' + (its.length - 3) + '건</div>' : '') + '</div>';
   });
   return '<div id="cal-scroll"><div class="cal-grid" id="cal-grid">' + html + '</div></div>';
@@ -3116,7 +3119,7 @@ function renderDaySum() {
       + ' <span style="font-size:11px;font-weight:500;color:#64748b">일정 ' + ss.length + ' · 상담 ' + ll.length + '</span></div>'
       + (ss.length ? ss.map(s => '<div style="font-size:12px;padding:3px 0;color:#334155">'
           + '<span style="color:' + schCol(s.type) + ';font-weight:700">[' + esc(s.type) + ']</span> '
-          + esc(schCustLabel(s)) + ' — ' + esc(s.title)
+          + esc(schLabel(s)) + ' — ' + esc(s.title)
           + (s.done ? (s.result ? ' <span style="color:#15803d">→ ' + esc(s.result) + '</span>' : ' <span style="color:#15803d">(완료)</span>')
                     : ' <span style="color:#ea580c">(대기)</span>') + '</div>').join('') : '')
       + (ll.length ? ll.map(l => '<div style="font-size:12px;padding:3px 0;color:#64748b">'
@@ -3271,7 +3274,7 @@ function openSchModal(id, preDate, forceProspectId) {
   const s = id ? DB.schedules.find(x => x.id === id) : null;
   const prospectId = forceProspectId || (s && s.prospectId) || '';
   const pr = prospectId ? prospectById(prospectId) : null;
-  $('sch-modal-title').textContent = pr ? '타겟병원 일정 등록' : (s ? '일정 수정' : '일정 추가');
+  $('sch-modal-title').textContent = pr ? (s ? '방문 결과 입력' : '타겟병원 일정 등록') : (s ? '일정 수정' : '일정 추가');
   $('s-del-btn').style.display = s ? 'inline-block' : 'none';
   $('s-id').value = s ? s.id : '';
   $('s-prospect-id').value = pr ? prospectId : '';
@@ -3379,11 +3382,14 @@ function saveSch() {
       cur.logId = lid;
     }
   }
-  /* 다음 액션을 후속 일정으로 예약 */
-  if ($('s-mksch').checked && row.nextAction) {
+  /* 다음 액션을 후속 일정으로 예약 — 예정일만 정하고 내용을 안 적는 경우도 있으므로
+     '다음 액션' 텍스트가 비어 있어도 날짜만 있으면 등록한다(제목은 방문 목적으로 대신 채움).
+     src:'nextAction' 표시를 남겨 일정 목록·달력에서 "(다음액션)" 으로 구분해 보여준다. */
+  if ($('s-mksch').checked && row.nextActionDate) {
     DB.schedules.push({
-      id: uid(), date: row.nextActionDate || today(), time: '', custId, prospectId,
-      type: cur.type, title: row.nextAction, rep, done: false, result: '', grade: 0,
+      id: uid(), createdById: ME && ME.id, date: row.nextActionDate,
+      time: '', custId, prospectId, src: 'nextAction',
+      type: cur.type, title: row.nextAction || cur.title, rep, done: false, result: '', grade: 0,
       interest: row.interest, nextAction: '', nextActionDate: ''
     });
   }
@@ -3392,7 +3398,7 @@ function saveSch() {
   const msgs = [];
   if (result) msgs.push('결과 기록');
   if (result && (custId || prospectId) && $('s-mklog').checked) msgs.push('상담일지 생성');
-  if ($('s-mksch').checked && row.nextAction) msgs.push('후속 일정 등록');
+  if ($('s-mksch').checked && row.nextActionDate) msgs.push('후속 일정 등록');
   if (msgs.length) toast(msgs.join(' · ') + ' 완료');
   RENDER[CUR_PAGE]();
 }
