@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731o';
+const APP_VERSION = '20260731p';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -5021,8 +5021,30 @@ async function afterLogin(session) {
   }
   hideLogin();
   await pullRemote(false);
+  await syncSalesReps();
   startApp();
   startIdleWatch();
+}
+/* 부서가 '영업'인 로그인 계정은 담당자 명단에 자동 등록한다.
+   딜·고객사·타겟병원·일정 등 '담당 영업' 입력칸이 전부 DB.reps 를 보고 채워지므로,
+   여기 한 번만 채워두면 그 화면들에서 바로 선택할 수 있다.
+   ⚠ 새로 추가만 한다 — 관리자가 담당자 관리에서 수동으로 꺼둔 사람을 다시 켜지는 않는다. */
+async function syncSalesReps() {
+  if (!isRemote() || !SB || !DB) return;
+  let res;
+  try { res = await SB.from('ul_profiles').select('display_name,dept,position,active'); }
+  catch (e) { return; }
+  if (!res || res.error || !res.data) return;
+  let changed = false;
+  res.data.forEach(u => {
+    if (u.active === false) return;
+    if (!/영업/.test(trimv(u.dept))) return;
+    const name = trimv(u.display_name);
+    if (!name || DB.reps.some(r => r.name === name)) return;
+    DB.reps.push({ name, role: trimv(u.position) || trimv(u.dept), salesDept: true });
+    changed = true;
+  });
+  if (changed) save(true);
 }
 function renderAccountBox() {
   const box = $('account-box'), card = $('sidebar-user');
@@ -5140,6 +5162,10 @@ async function renderUsers() {
   fillDatalist('dl-dept', [...new Set(U_ROWS.map(u => u.dept).filter(Boolean))]);
   fillDatalist('dl-pos', [...new Set(U_ROWS.map(u => u.position).filter(Boolean))]);
   paintUsers();
+  /* 이 화면을 볼 때마다 부서가 '영업'으로 바뀐 계정을 담당자 명단에 반영 */
+  await syncSalesReps();
+  renderRepMgmt();
+  refreshSelects();
 }
 function paintUsers() {
   const q = trimv(($('u-search') || {}).value).toLowerCase();
