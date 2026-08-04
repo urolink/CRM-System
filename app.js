@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731x';
+const APP_VERSION = '20260731y';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -27,6 +27,8 @@ const SCH_TYPES = {
 /* ───────────────────────── 2. 유틸 ───────────────────────── */
 const $  = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* 홈페이지 등 사용자가 적은 주소 — http(s):// 를 빼먹고 적어도 링크가 동작하도록 보정 */
+const normalizeUrl = v => { v = String(v == null ? '' : v).trim(); return v && !/^https?:\/\//i.test(v) ? 'https://' + v : v; };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const num = v => { const n = Number(String(v == null ? '' : v).replace(/[^\d.-]/g, '')); return isFinite(n) ? n : 0; };
 const comma = n => num(n).toLocaleString('ko-KR');
@@ -4011,6 +4013,7 @@ function openCustModal(id) {
   $('c-gugun').value = c ? (c.gugun || '') : '';
   $('c-rep-in').value = c ? (c.rep || '') : '';
   $('c-phone').value = c ? (c.phone || '') : '';
+  $('c-website').value = c ? (c.website || '') : '';
   $('c-zip').value = c ? (c.zip || '') : '';
   $('c-addr').value = c ? (c.addr || '') : '';
   $('c-addr2').value = c ? (c.addr2 || '') : '';
@@ -4025,7 +4028,7 @@ function saveCust() {
   if (!name) return alert('고객사명을 입력해주세요.');
   const row = { name, type: $('c-type').value, doctor: $('c-doctor').value.trim(), dept: $('c-dept').value.trim(),
     grade: $('c-grade-in').value, sido: $('c-sido').value.trim(), gugun: $('c-gugun').value.trim(),
-    rep: resolveRep($('c-rep-in').value), phone: $('c-phone').value.trim(),
+    rep: resolveRep($('c-rep-in').value), phone: $('c-phone').value.trim(), website: $('c-website').value.trim(),
     zip: $('c-zip').value.trim(), addr: $('c-addr').value.trim(), addr2: $('c-addr2').value.trim(),
     contacts: readContacts(),
     tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim(),
@@ -4272,6 +4275,10 @@ function renderCdBody() {
         .map(([k, v]) => `<div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
           <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">${esc(k)}</div>
           <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${esc(v || '-')}</div></div>`).join('')}
+      <div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
+        <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">홈페이지</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${c.website
+          ? `<a href="${esc(normalizeUrl(c.website))}" target="_blank" rel="noopener noreferrer">${esc(c.website)}</a>` : '-'}</div></div>
       <div class="col-12" style="display:flex">
         <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(c.memo || '-')}</div></div></div>`
@@ -4399,6 +4406,10 @@ function openProspectDetail(id) {
       ${rows.map(([k, v]) => `<div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
         <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">${esc(k)}</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${esc(v || '-')}</div></div>`).join('')}
+      <div class="col-md-6" style="display:flex;border-bottom:1px solid #f3f4f6">
+        <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">홈페이지</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${p.website
+          ? `<a href="${esc(normalizeUrl(p.website))}" target="_blank" rel="noopener noreferrer">${esc(p.website)}</a>` : '-'}</div></div>
       <div class="col-12" style="display:flex">
         <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(p.memo || '-')}</div></div></div>`
@@ -4426,6 +4437,7 @@ function openProspectModal(id) {
   $('pr-gugun').value = p ? (p.gugun || '') : '';
   $('pr-rep-in').value = p ? (p.rep || '') : '';
   $('pr-phone').value = p ? (p.phone || '') : '';
+  $('pr-website').value = p ? (p.website || '') : '';
   $('pr-zip').value = p ? (p.zip || '') : '';
   $('pr-addr').value = p ? (p.addr || '') : '';
   $('pr-addr2').value = p ? (p.addr2 || '') : '';
@@ -4442,7 +4454,7 @@ function saveProspect() {
   if (!name) return alert('병원명을 입력해주세요.');
   const row = { name, type: $('pr-type').value, dept: $('pr-dept').value.trim(),
     sido: $('pr-sido').value.trim(), gugun: $('pr-gugun').value.trim(),
-    rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(),
+    rep: resolveRep($('pr-rep-in').value), phone: $('pr-phone').value.trim(), website: $('pr-website').value.trim(),
     zip: $('pr-zip').value.trim(), addr: $('pr-addr').value.trim(), addr2: $('pr-addr2').value.trim(),
     status: $('pr-status-in').value, interest: (prodByCode($('pr-interest').value) || {}).name || '',
     contacts: readContacts('pr-contacts'),
@@ -4470,7 +4482,7 @@ function convertProspect(id) {
   if (!p) return;
   if (!confirm(`'${p.name}'을(를) 고객사로 전환할까요?\n타겟병원 목록에서는 사라집니다.`)) return;
   DB.customers.push({ id: uid(), name: p.name, type: p.type || '의원', doctor: '', dept: p.dept || '비뇨의학과',
-    grade: 'C', sido: p.sido || '', gugun: p.gugun || '', rep: p.rep || '', phone: p.phone || '',
+    grade: 'C', sido: p.sido || '', gugun: p.gugun || '', rep: p.rep || '', phone: p.phone || '', website: p.website || '',
     zip: p.zip || '', addr: p.addr || '', addr2: p.addr2 || '', contacts: p.contacts || [],
     tags: [], memo: p.memo || '', createdAt: today() });
   DB.prospects = DB.prospects.filter(x => x.id !== id);
