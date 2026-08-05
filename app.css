@@ -477,6 +477,23 @@ body{display:flex;min-height:100vh;background:var(--bg);font-family:'Noto Sans K
 .saving-toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:9999;display:none;box-shadow:0 4px 12px rgba(0,0,0,.2);align-items:center;gap:8px}
 .saving-toast.show{display:flex}
 
+/* ── 동기화 표시 ── */
+#sync-badge{position:fixed;bottom:24px;left:24px;background:#1e293b;color:#e2e8f0;padding:8px 14px;border-radius:10px;
+  font-size:12.5px;z-index:9999;display:none;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+#sync-badge.show{display:flex}
+#sync-badge i{font-size:13px}
+#sync-badge.syncing i{animation:sb-spin 0.8s linear infinite}
+#sync-badge.done{background:#166534}
+@keyframes sb-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@media print{#sync-badge{display:none!important}}
+
+/* ── 일괄 작업 바 ── */
+.bulk-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#eff6ff;border:1px solid #bfdbfe;
+  border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12.5px}
+.bulk-bar #c-bulk-count,.bulk-bar #dl-bulk-count{font-weight:700;color:#1d4ed8;margin-right:2px}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:#1d4ed8}
+
 /* ── 로그인 화면 ── */
 #login-screen{position:fixed;inset:0;z-index:5000;background:#0f172a;display:none;align-items:center;justify-content:center;padding:20px}
 #login-screen.on{display:flex}

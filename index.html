@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260801a" rel="stylesheet">
-<script src="config.js?v=20260801a"></script>
+<link href="app.css?v=20260805a" rel="stylesheet">
+<script src="config.js?v=20260805a"></script>
 </head>
 <body>
 
@@ -345,8 +345,25 @@
         <input type="text" id="dl-search" class="form-control form-control-sm" style="max-width:220px" placeholder="검색..." oninput="renderDealList()">
         <select id="dl-stage" class="form-select form-select-sm" style="max-width:140px" onchange="renderDealList()"><option value="">전체 단계</option></select>
       </div>
+      <div id="dl-bulk-bar" class="bulk-bar" style="display:none">
+        <span id="dl-bulk-count"></span>
+        <select id="dl-bulk-rep" class="form-select form-select-sm" style="max-width:130px"><option value="">담당자 선택</option></select>
+        <button class="btn btn-sm btn-outline-primary" onclick="bulkSetRepDeal()">담당자 일괄 변경</button>
+        <select id="dl-bulk-stage" class="form-select form-select-sm" style="max-width:130px"><option value="">단계 선택</option></select>
+        <button class="btn btn-sm btn-outline-primary" onclick="bulkSetStageDeal()">단계 일괄 변경</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="bulkDeleteDeal()">일괄 삭제</button>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearDealSel()">선택 해제</button>
+      </div>
       <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
-        <thead><tr><th>고객사</th><th>제품</th><th class="text-end">금액</th><th>단계</th><th class="text-center">확률</th><th>예상 수주일</th><th>담당</th><th>다음 액션</th><th></th></tr></thead>
+        <thead><tr><th style="width:32px"><input type="checkbox" id="dl-sel-all" onchange="toggleDealSelAll(this)"></th>
+          <th class="sortable" onclick="dealSort('cust')">고객사<span id="dl-arr-cust"></span></th>
+          <th>제품</th>
+          <th class="text-end sortable" onclick="dealSort('amount')">금액<span id="dl-arr-amount"></span></th>
+          <th class="sortable" onclick="dealSort('stage')">단계<span id="dl-arr-stage"></span></th>
+          <th class="text-center sortable" onclick="dealSort('prob')">확률<span id="dl-arr-prob"></span></th>
+          <th class="sortable" onclick="dealSort('expectedDate')">예상 수주일<span id="dl-arr-expectedDate"></span></th>
+          <th class="sortable" onclick="dealSort('rep')">담당<span id="dl-arr-rep"></span></th>
+          <th>다음 액션</th><th></th></tr></thead>
         <tbody id="deal-list-tbody"></tbody>
       </table></div></div>
     </div>
@@ -455,8 +472,24 @@
       <select id="c-region" class="form-select form-select-sm" style="max-width:140px" onchange="renderCustomers()"><option value="">전체 지역</option></select>
     </div>
     <div id="c-tagbar" class="mb-2 d-flex gap-1 flex-wrap"></div>
+    <div id="c-bulk-bar" class="bulk-bar" style="display:none">
+      <span id="c-bulk-count"></span>
+      <select id="c-bulk-rep" class="form-select form-select-sm" style="max-width:130px"><option value="">담당자 선택</option></select>
+      <button class="btn btn-sm btn-outline-primary" onclick="bulkSetRepCust()">담당자 일괄 변경</button>
+      <select id="c-bulk-grade" class="form-select form-select-sm" style="max-width:100px"><option value="">등급 선택</option><option>A</option><option>B</option><option>C</option><option>D</option></select>
+      <button class="btn btn-sm btn-outline-primary" onclick="bulkSetGradeCust()">등급 일괄 변경</button>
+      <button class="btn btn-sm btn-outline-danger" onclick="bulkDeleteCust()">일괄 삭제</button>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearCustSel()">선택 해제</button>
+    </div>
     <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0">
-      <thead><tr><th>고객사명</th><th>구분</th><th>원장/담당</th><th>지역</th><th>연락처</th><th>담당영업</th><th class="text-center">등급</th><th class="text-end">누적 수주</th><th>태그</th><th></th></tr></thead>
+      <thead><tr><th style="width:32px"><input type="checkbox" id="c-sel-all" onchange="toggleCustSelAll(this)"></th>
+        <th class="sortable" onclick="custSort('name')">고객사명<span id="c-arr-name"></span></th>
+        <th>구분</th><th>원장/담당</th>
+        <th class="sortable" onclick="custSort('region')">지역<span id="c-arr-region"></span></th>
+        <th>연락처</th><th>담당영업</th>
+        <th class="text-center sortable" onclick="custSort('grade')">등급<span id="c-arr-grade"></span></th>
+        <th class="text-end sortable" onclick="custSort('won')">누적 수주<span id="c-arr-won"></span></th>
+        <th>태그</th><th></th></tr></thead>
       <tbody id="cust-tbody"></tbody>
     </table></div></div>
   </div>
@@ -1297,6 +1330,8 @@
 
 <div class="saving-toast" id="toast"><i class="bi bi-check-circle-fill" style="color:#34d399"></i><span id="toast-msg">저장되었습니다</span></div>
 
+<div id="sync-badge"><i class="bi bi-arrow-repeat"></i><span id="sync-badge-text"></span></div>
+
 <!-- 새 버전 알림 바 -->
 <div id="update-bar">
   <i class="bi bi-arrow-clockwise"></i>
@@ -1306,6 +1341,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260801a"></script>
+<script src="app.js?v=20260805a"></script>
 </body>
 </html>

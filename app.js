@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260801a';
+const APP_VERSION = '20260805a';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -184,10 +184,22 @@ function save(silent) {
 function syncing(on) {
   SYNCING = Math.max(0, SYNCING + (on ? 1 : -1));
   const el = $('footer-meta');
-  if (!el) return;
-  if (SYNCING) el.textContent = '서버 동기화 중...';
-  else if (DB) refreshCounts();
-  else el.textContent = '';
+  if (el) {
+    if (SYNCING) el.textContent = '서버 동기화 중...';
+    else if (DB) refreshCounts();
+    else el.textContent = '';
+  }
+  const badge = $('sync-badge'), text = $('sync-badge-text');
+  if (!badge || !text) return;
+  clearTimeout(syncing._t);
+  if (SYNCING) {
+    badge.classList.add('show', 'syncing'); badge.classList.remove('done');
+    text.textContent = '서버 동기화 중...';
+  } else {
+    badge.classList.remove('syncing'); badge.classList.add('done');
+    text.textContent = '저장됨';
+    syncing._t = setTimeout(() => badge.classList.remove('show', 'done'), 1200);
+  }
 }
 
 /* ── 서버로 변경분만 밀어넣기 ── */
@@ -724,6 +736,8 @@ function refreshSelects() {
   refreshDatalists();
   /* sch-rep 은 renderSchedule 이 '👥 담당 전체' 라벨로 직접 채운다(라벨 덮어쓰기 방지) */
   ['pipe-rep','c-rep','pr-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '전체 담당자', keep: true }));
+  ['c-bulk-rep','dl-bulk-rep'].forEach(id => fillSelect($(id), repNames(), { blank: '담당자 선택', keep: true }));
+  fillSelect($('dl-bulk-stage'), STAGES.map(s => s.name).filter(s => s !== '실주'), { blank: '단계 선택', keep: true });
   ['d-product','sl-product','e-model','l-interest','s-interest','pr-interest'].forEach(fillProductSelect);
   fillSelect($('d-stage'), STAGES.map(s => s.name));
   fillSelect($('d-lost-reason'), LOST_REASONS, { blank: '선택하세요', keep: true });
@@ -2590,10 +2604,11 @@ function renderDealList() {
     if (st && d.stage !== st) return false;
     if (q) return (custName(d.custId) + ' ' + d.product + ' ' + (d.rep || '')).toLowerCase().includes(q);
     return true;
-  }).sort((a, b) => String(b.expectedDate).localeCompare(String(a.expectedDate)));
+  }).sort(dealSortFn());
   $('deal-list-tbody').innerHTML = rows.length ? rows.map(d => {
     const n = dDays(d.nextActionDate);
     return `<tr>
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="dl-sel-cb" data-id="${d.id}" ${DEAL_SEL.has(d.id) ? 'checked' : ''} onchange="toggleDealSel('${d.id}',this.checked)"></td>
       <td><a class="cust-link" onclick="openCustDetail('${d.custId}')">${esc(custName(d.custId))}</a></td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(d.product)}</td>
       <td class="text-end fw-bold">${comma(d.amount)}</td>
@@ -2603,7 +2618,98 @@ function renderDealList() {
       <td>${esc(d.rep || '-')}</td>
       <td style="font-size:12px">${d.nextAction ? esc(d.nextAction) + (n != null && n < 0 ? ` <span class="dc-flag od">${-n}일</span>` : '') : '-'}</td>
       <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openDrawer('${d.id}')">상세</button></td></tr>`;
-  }).join('') : `<tr><td colspan="9" class="table-empty">딜이 없습니다</td></tr>`;
+  }).join('') : `<tr><td colspan="10" class="table-empty">딜이 없습니다</td></tr>`;
+  ['cust','amount','stage','prob','expectedDate','rep'].forEach(f => { const el = $('dl-arr-' + f); if (el) el.textContent = DEAL_SORT.f === f ? (DEAL_SORT.dir > 0 ? ' ▲' : ' ▼') : ''; });
+  const allCb = $('dl-sel-all');
+  if (allCb) allCb.checked = rows.length > 0 && rows.every(d => DEAL_SEL.has(d.id));
+  renderDealBulkBar();
+}
+
+/* ── 딜 목록 정렬 ── */
+let DEAL_SORT = { f: 'expectedDate', dir: -1 };
+function dealSortFn() {
+  const getters = {
+    cust: d => custName(d.custId) || '',
+    amount: d => num(d.amount),
+    stage: d => STAGES.findIndex(s => s.name === d.stage),
+    prob: d => num(d.prob),
+    expectedDate: d => String(d.expectedDate || ''),
+    rep: d => d.rep || ''
+  };
+  const fn = getters[DEAL_SORT.f] || getters.expectedDate;
+  return (a, b) => {
+    const va = fn(a), vb = fn(b);
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'ko');
+    return cmp * DEAL_SORT.dir;
+  };
+}
+function dealSort(f) {
+  if (DEAL_SORT.f === f) DEAL_SORT.dir *= -1;
+  else { DEAL_SORT.f = f; DEAL_SORT.dir = (f === 'amount' || f === 'expectedDate' || f === 'prob') ? -1 : 1; }
+  renderDealList();
+}
+
+/* ── 딜 목록 다중 선택 · 일괄 작업 ── */
+let DEAL_SEL = new Set();
+function toggleDealSel(id, checked) {
+  if (checked) DEAL_SEL.add(id); else DEAL_SEL.delete(id);
+  renderDealBulkBar();
+  const allCb = $('dl-sel-all');
+  if (allCb) allCb.checked = [...document.querySelectorAll('#deal-list-tbody .dl-sel-cb')].every(cb => cb.checked);
+}
+function toggleDealSelAll(el) {
+  document.querySelectorAll('#deal-list-tbody .dl-sel-cb').forEach(cb => {
+    cb.checked = el.checked;
+    if (el.checked) DEAL_SEL.add(cb.dataset.id); else DEAL_SEL.delete(cb.dataset.id);
+  });
+  renderDealBulkBar();
+}
+function clearDealSel() { DEAL_SEL.clear(); renderDealList(); }
+function renderDealBulkBar() {
+  const bar = $('dl-bulk-bar'); if (!bar) return;
+  bar.style.display = DEAL_SEL.size ? 'flex' : 'none';
+  const cnt = $('dl-bulk-count'); if (cnt) cnt.textContent = DEAL_SEL.size + '건 선택됨';
+}
+function bulkSetRepDeal() {
+  const rep = $('dl-bulk-rep').value;
+  if (!rep) { toast('담당자를 선택하세요'); return; }
+  const ids = [...DEAL_SEL];
+  ids.forEach(id => {
+    const d = DB.deals.find(x => x.id === id); if (!d) return;
+    const before = auditSnap(d); d.rep = rep; auditDiff('deals', d.id, before, d, custName(d.custId));
+  });
+  save(); DEAL_SEL.clear(); renderSales();
+  toast(ids.length + '건 담당자를 ' + rep + '(으)로 변경했습니다');
+}
+function bulkSetStageDeal() {
+  const stage = $('dl-bulk-stage').value;
+  if (!stage) { toast('단계를 선택하세요'); return; }
+  const ids = [...DEAL_SEL];
+  ids.forEach(id => {
+    const d = DB.deals.find(x => x.id === id); if (!d) return;
+    const before = auditSnap(d);
+    d.stage = stage; d.prob = stageOf(stage).prob;
+    if (stage === '계약완료') d.closedAt = today();
+    auditDiff('deals', d.id, before, d, custName(d.custId));
+  });
+  save(); DEAL_SEL.clear(); renderSales();
+  toast(ids.length + '건 단계를 ' + stage + '(으)로 변경했습니다');
+}
+function bulkDeleteDeal() {
+  const rows = [...DEAL_SEL].map(id => DB.deals.find(x => x.id === id)).filter(Boolean);
+  if (!rows.length) return;
+  const allowed = rows.filter(d => isAdmin() || isOwner(d));
+  const denied = rows.length - allowed.length;
+  if (!allowed.length) { toast('선택한 항목을 삭제할 권한이 없습니다'); return; }
+  if (!confirm(allowed.length + '개 딜을 삭제할까요?' + (denied ? `\n(권한 없는 ${denied}건은 제외됩니다)` : '') + '\n되돌릴 수 없습니다.')) return;
+  allowed.forEach(d => auditLog('deals', d.id, '삭제', custName(d.custId) + ' · ' + (d.product || ''), comma(d.amount) + '원 · ' + (d.stage || '') + ' · 일괄 삭제'));
+  const delSet = new Set(allowed.map(d => d.id));
+  DB.deals = DB.deals.filter(d => !delSet.has(d.id));
+  DEAL_SEL.clear();
+  save(); renderSales();
+  if (CUR_PAGE === 'overview') renderOverview();
+  if (CUR_PAGE === 'dashboard') renderDashboard();
+  toast(allowed.length + '건 삭제했습니다' + (denied ? ` · ${denied}건 건너뜀` : ''));
 }
 
 /* ── 딜 드로어 ── */
@@ -3952,9 +4058,10 @@ function renderCustomers() {
         + ' ' + (c.tags || []).join(' ') + ' ' + (c.phone || '') + ' ' + (c.addr || '') + ' ' + ct).toLowerCase().includes(q);
     }
     return true;
-  }).sort((a, b) => custWonAmount(b.id) - custWonAmount(a.id));
+  }).sort(custSortFn());
 
   $('cust-tbody').innerHTML = rows.length ? rows.map(c => `<tr>
+    <td onclick="event.stopPropagation()"><input type="checkbox" class="c-sel-cb" data-id="${c.id}" ${CUST_SEL.has(c.id) ? 'checked' : ''} onchange="toggleCustSel('${c.id}',this.checked)"></td>
     <td><a class="cust-link" onclick="openCustDetail('${c.id}')">${esc(c.name)}</a></td>
     <td style="font-size:12px;color:#64748b">${esc(c.type || '-')}</td>
     <td>${esc(c.doctor || '-')}</td>
@@ -3965,9 +4072,88 @@ function renderCustomers() {
     <td class="text-end fw-bold">${comma(custWonAmount(c.id))}</td>
     <td>${(c.tags || []).slice(0, 3).map(t => `<span class="tag-chip">${esc(String(t).trim())}</span>`).join('')}</td>
     <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openCustModal('${c.id}')"><i class="bi bi-pencil"></i></button></td>
-  </tr>`).join('') : `<tr><td colspan="10" class="table-empty">고객사가 없습니다</td></tr>`;
+  </tr>`).join('') : `<tr><td colspan="11" class="table-empty">고객사가 없습니다</td></tr>`;
+  ['name','region','grade','won'].forEach(f => { const el = $('c-arr-' + f); if (el) el.textContent = CUST_SORT.f === f ? (CUST_SORT.dir > 0 ? ' ▲' : ' ▼') : ''; });
+  const allCb = $('c-sel-all');
+  if (allCb) allCb.checked = rows.length > 0 && rows.every(c => CUST_SEL.has(c.id));
+  renderCustBulkBar();
 }
 function setCTag(t) { C_TAG = t; renderCustomers(); }
+
+/* ── 고객사 목록 정렬 ── */
+let CUST_SORT = { f: 'won', dir: -1 };
+function custSortFn() {
+  const getters = {
+    name: c => c.name || '',
+    region: c => (c.sido || '') + (c.gugun || ''),
+    grade: c => c.grade || '',
+    won: c => custWonAmount(c.id)
+  };
+  const fn = getters[CUST_SORT.f] || getters.won;
+  return (a, b) => {
+    const va = fn(a), vb = fn(b);
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'ko');
+    return cmp * CUST_SORT.dir;
+  };
+}
+function custSort(f) {
+  if (CUST_SORT.f === f) CUST_SORT.dir *= -1;
+  else { CUST_SORT.f = f; CUST_SORT.dir = f === 'won' ? -1 : 1; }
+  renderCustomers();
+}
+
+/* ── 고객사 목록 다중 선택 · 일괄 작업 ── */
+let CUST_SEL = new Set();
+function toggleCustSel(id, checked) {
+  if (checked) CUST_SEL.add(id); else CUST_SEL.delete(id);
+  renderCustBulkBar();
+  const allCb = $('c-sel-all');
+  if (allCb) allCb.checked = [...document.querySelectorAll('#cust-tbody .c-sel-cb')].every(cb => cb.checked);
+}
+function toggleCustSelAll(el) {
+  document.querySelectorAll('#cust-tbody .c-sel-cb').forEach(cb => {
+    cb.checked = el.checked;
+    if (el.checked) CUST_SEL.add(cb.dataset.id); else CUST_SEL.delete(cb.dataset.id);
+  });
+  renderCustBulkBar();
+}
+function clearCustSel() { CUST_SEL.clear(); renderCustomers(); }
+function renderCustBulkBar() {
+  const bar = $('c-bulk-bar'); if (!bar) return;
+  bar.style.display = CUST_SEL.size ? 'flex' : 'none';
+  const cnt = $('c-bulk-count'); if (cnt) cnt.textContent = CUST_SEL.size + '건 선택됨';
+}
+function bulkSetRepCust() {
+  const rep = $('c-bulk-rep').value;
+  if (!rep) { toast('담당자를 선택하세요'); return; }
+  const ids = [...CUST_SEL];
+  ids.forEach(id => { const c = custById(id); if (c) c.rep = rep; });
+  save(); CUST_SEL.clear(); renderCustomers();
+  toast(ids.length + '건 담당자를 ' + rep + '(으)로 변경했습니다');
+}
+function bulkSetGradeCust() {
+  const grade = $('c-bulk-grade').value;
+  if (!grade) { toast('등급을 선택하세요'); return; }
+  const ids = [...CUST_SEL];
+  ids.forEach(id => { const c = custById(id); if (c) c.grade = grade; });
+  save(); CUST_SEL.clear(); renderCustomers();
+  toast(ids.length + '건 등급을 ' + grade + '(으)로 변경했습니다');
+}
+function bulkDeleteCust() {
+  const rows = [...CUST_SEL].map(custById).filter(Boolean);
+  if (!rows.length) return;
+  const allowed = rows.filter(c => isAdmin() || isOwner(c));
+  const denied = rows.length - allowed.length;
+  if (!allowed.length) { toast('선택한 항목을 삭제할 권한이 없습니다'); return; }
+  if (!confirm(allowed.length + '개 고객사를 삭제할까요?' + (denied ? `\n(권한 없는 ${denied}건은 제외됩니다)` : '')
+    + '\n연결된 딜·장비 기록은 남습니다.')) return;
+  allowed.forEach(c => { auditLog('customers', c.id, '삭제', c.name, '일괄 삭제'); });
+  const delSet = new Set(allowed.map(c => c.id));
+  DB.customers = DB.customers.filter(c => !delSet.has(c.id));
+  CUST_SEL.clear();
+  save(); refreshSelects(); renderCustomers();
+  toast(allowed.length + '건 삭제했습니다' + (denied ? ` · ${denied}건 건너뜀` : ''));
+}
 /* ══ 주소 검색 (다음 우편번호 서비스) ══
    검색 결과에서 우편번호·기본주소를 채우고 시/도·시/군/구를 자동 분해한다. */
 function searchAddress(prefix) {
