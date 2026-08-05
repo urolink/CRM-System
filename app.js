@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805a';
+const APP_VERSION = '20260805b';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -5932,6 +5932,25 @@ async function createUser() {
   if (CUR_PAGE === 'settings') renderSettings();
 }
 
+/* ── 검색·필터 상태 유지 — 새로고침·페이지 이동 후에도 마지막 검색/필터 조건을 기억한다 ── */
+const FILTER_IDS = ['pipe-search','pipe-rep','dl-search','dl-stage','log-search','sch-rep',
+  'q-search','q-status','pr-search','pr-status','pr-rep','pr-region',
+  'c-search','c-grade','c-rep','c-region','e-search','e-status','e-warranty',
+  'p-search','p-cat','sale-search','au-search'];
+function saveFilter(id) {
+  const el = $(id); if (!el) return;
+  try { localStorage.setItem('ul_flt_' + id, el.value); } catch (e) {}
+}
+function restoreFilters() {
+  FILTER_IDS.forEach(id => {
+    const el = $(id); if (!el) return;
+    let v; try { v = localStorage.getItem('ul_flt_' + id); } catch (e) { return; }
+    if (v) el.value = v;
+  });
+}
+document.addEventListener('input', e => { if (e.target && FILTER_IDS.includes(e.target.id)) saveFilter(e.target.id); });
+document.addEventListener('change', e => { if (e.target && FILTER_IDS.includes(e.target.id)) saveFilter(e.target.id); });
+
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); }
@@ -5979,6 +5998,7 @@ function startApp() {
   renderAccountBox();
   refreshSelects();
   refreshCounts();
+  restoreFilters();
   const p = location.hash.replace('#', '');
   showPage(PAGES.includes(p) ? p : 'overview');
   checkVersion();
