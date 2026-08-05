@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260731z';
+const APP_VERSION = '20260801a';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3106,6 +3106,11 @@ function renderSchedule() {
   $('sch-stats').innerHTML = schStatsBar(all);
   const body = $('sch-body'), title = $('sch-title'), nav = $('sch-nav');
   nav.innerHTML = ''; title.textContent = '';
+  /* 지금 몇 월을 보고 있는지 한눈에 — 이번주 뷰는 그 주의 월요일 기준으로 표시
+     (주가 월 경계에 걸치면 그 주가 '속한' 월을 보여준다) */
+  const monthBase = SCH_VIEW === 'week' ? parseD(schWeekRange(SCH_REF).start) : (parseD(SCH_REF || today()) || new Date());
+  const mb = $('sch-month-big');
+  if (mb) mb.textContent = monthBase.getFullYear() + '년 ' + (monthBase.getMonth() + 1) + '월';
 
   if (SCH_OVERDUE) {
     const list = all.filter(i => !i.done && i.date < today()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
