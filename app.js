@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805c';
+const APP_VERSION = '20260805d';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2195,6 +2195,7 @@ function openImportModal(kind) {
   IM_ROWS = null;
   $('im-kind').value = kind || 'customers';
   $('im-file').value = '';
+  $('im-paste').value = '';
   $('im-preview').innerHTML = '';
   $('im-foot').textContent = '';
   $('im-go').disabled = true;
@@ -2246,6 +2247,27 @@ function imRead(input) {
   };
   rd.onerror = () => { $('im-preview').innerHTML = '<div class="im-err">파일을 읽지 못했습니다.</div>'; };
   rd.readAsArrayBuffer(file);
+}
+
+/* 엑셀에서 복사한 표(탭으로 구분된 텍스트)를 붙여넣어 가져오기 —
+   파일 업로드 없이도 같은 검증·미리보기·중복 처리 파이프라인(imParse)을 그대로 탄다. */
+function imPasteParse() {
+  const text = ($('im-paste').value || '').trim();
+  if (!text) { toast('붙여넣은 내용이 없습니다'); return; }
+  const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim() !== '');
+  if (lines.length < 2) {
+    $('im-preview').innerHTML = '<div class="im-err">헤더 행과 데이터 행이 각각 최소 1줄 필요합니다.</div>';
+    $('im-go').disabled = true;
+    return;
+  }
+  const heads = lines[0].split('\t').map(h => h.trim());
+  const raw = lines.slice(1).map(line => {
+    const cells = line.split('\t');
+    const o = {};
+    heads.forEach((h, i) => { o[h] = cells[i] != null ? cells[i].trim() : ''; });
+    return o;
+  });
+  imParse(raw);
 }
 
 /* 헤더 이름 정규화 — 공백·괄호·별표를 무시해 '고객사명 *' 도 인식 */
