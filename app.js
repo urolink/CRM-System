@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805b';
+const APP_VERSION = '20260805c';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2803,6 +2803,7 @@ function openDealModal(id, custId) {
   $('d-retry-date').value = d ? (d.retryDate || '') : '';
   $('d-lost-memo').value = d ? (d.lostMemo || '') : '';
   toggleLostBox();
+  draftCheck('dealModal');
   new bootstrap.Modal($('dealModal')).show();
 }
 function dealProdChange() { dealCalc(); }
@@ -2857,6 +2858,7 @@ function saveDeal() {
     DB.deals.push(Object.assign({ id: uid(), createdAt: today(), closedAt: '', createdById: ME && ME.id }, row));
   }
   save();
+  draftClear('dealModal');
   bootstrap.Modal.getInstance($('dealModal')).hide();
   renderSales(); if (CUR_PAGE === 'overview') renderOverview();
 }
@@ -2929,6 +2931,7 @@ function openLogModal(id, custId, forceProspectId) {
   $('l-content').value = l ? l.content : '';
   $('l-next').value = l ? (l.nextAction || '') : '';
   $('l-next-date').value = l ? (l.nextActionDate || '') : '';
+  draftCheck('logModal');
   new bootstrap.Modal($('logModal')).show();
 }
 function saveLog() {
@@ -2965,6 +2968,7 @@ function saveLog() {
     }
   }
   save();
+  draftClear('logModal');
   bootstrap.Modal.getInstance($('logModal')).hide();
   if (CUR_PAGE === 'sales') renderLogs(); else RENDER[CUR_PAGE]();
 }
@@ -3473,6 +3477,7 @@ function openSchModal(id, preDate, forceProspectId) {
   const hideResult = !!(forceProspectId && !s);
   $('sch-result-col').style.display = hideResult ? 'none' : '';
   $('sch-left-col').className = hideResult ? 'col-lg-12' : 'col-lg-5';
+  draftCheck('schModal');
   new bootstrap.Modal($('schModal')).show();
 }
 /* 타겟병원 목록의 '일정 등록' 아이콘 — 고객사로 전환하지 않고, 방문 예정 일정만 잡는다.
@@ -3549,6 +3554,7 @@ function saveSch() {
     });
   }
   save();
+  draftClear('schModal');
   bootstrap.Modal.getInstance($('schModal')).hide();
   const msgs = [];
   if (result) msgs.push('결과 기록');
@@ -5950,6 +5956,54 @@ function restoreFilters() {
 }
 document.addEventListener('input', e => { if (e.target && FILTER_IDS.includes(e.target.id)) saveFilter(e.target.id); });
 document.addEventListener('change', e => { if (e.target && FILTER_IDS.includes(e.target.id)) saveFilter(e.target.id); });
+
+/* ── 모달 작성 중 임시 저장(초안) — 딜·방문일지·일정처럼 입력 항목이 많은
+   모달에서 실수로 닫거나 새로고침해도 쓰던 내용을 복구할 수 있게 한다.
+   모달 안의 id 달린 입력 요소를 통째로 스냅샷 떠서 저장하므로, 필드가
+   늘어나도 이 부분을 따로 손댈 필요가 없다. */
+const DRAFT_MODALS = { dealModal: { idField: 'd-id', scope: 'deal' }, logModal: { idField: 'l-id', scope: 'log' }, schModal: { idField: 's-id', scope: 'sch' } };
+function draftKey(scope, rowId) { return 'ul_draft_' + scope + '_' + (rowId || 'new'); }
+function draftFieldEls(modalId) {
+  return [...document.querySelectorAll('#' + modalId + ' [id]')]
+    .filter(el => el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+}
+function draftSave(modalId) {
+  const cfg = DRAFT_MODALS[modalId]; if (!cfg) return;
+  const rowId = ($(cfg.idField) || {}).value || '';
+  const data = {};
+  draftFieldEls(modalId).forEach(el => { data[el.id] = el.type === 'checkbox' ? el.checked : el.value; });
+  try { localStorage.setItem(draftKey(cfg.scope, rowId), JSON.stringify({ t: Date.now(), data })); } catch (e) {}
+}
+function draftClear(modalId) {
+  const cfg = DRAFT_MODALS[modalId]; if (!cfg) return;
+  const rowId = ($(cfg.idField) || {}).value || '';
+  try { localStorage.removeItem(draftKey(cfg.scope, rowId)); } catch (e) {}
+}
+/* 모달을 열 때 호출 — 기본값을 다 채운 뒤, 마지막으로 부른다 */
+function draftCheck(modalId) {
+  const cfg = DRAFT_MODALS[modalId]; if (!cfg) return;
+  const rowId = ($(cfg.idField) || {}).value || '';
+  let raw; try { raw = localStorage.getItem(draftKey(cfg.scope, rowId)); } catch (e) { return; }
+  if (!raw) return;
+  let parsed; try { parsed = JSON.parse(raw); } catch (e) { return; }
+  if (!parsed || !parsed.data) return;
+  if (!confirm('작성하다 만 임시 저장된 내용이 있습니다. 불러올까요?')) { draftClear(modalId); return; }
+  Object.keys(parsed.data).forEach(id => {
+    const el = $(id); if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!parsed.data[id]; else el.value = parsed.data[id];
+  });
+  if (modalId === 'dealModal') toggleLostBox();
+  if (modalId === 'schModal') purchaseStatusChange();
+}
+let DRAFT_TIMER = null;
+document.addEventListener('input', e => {
+  const modal = e.target.closest && e.target.closest('.modal');
+  if (modal && DRAFT_MODALS[modal.id]) { clearTimeout(DRAFT_TIMER); DRAFT_TIMER = setTimeout(() => draftSave(modal.id), 500); }
+});
+document.addEventListener('change', e => {
+  const modal = e.target.closest && e.target.closest('.modal');
+  if (modal && DRAFT_MODALS[modal.id]) draftSave(modal.id);
+});
 
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
