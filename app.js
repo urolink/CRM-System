@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805d';
+const APP_VERSION = '20260805e';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -196,10 +196,21 @@ function syncing(on) {
     badge.classList.add('show', 'syncing'); badge.classList.remove('done');
     text.textContent = '서버 동기화 중...';
   } else {
-    badge.classList.remove('syncing'); badge.classList.add('done');
-    text.textContent = '저장됨';
-    syncing._t = setTimeout(() => badge.classList.remove('show', 'done'), 1200);
+    /* 성공 여부를 여기서 알 수 없다(호출 시점엔 응답 검증 전) — 진행 표시만 끄고,
+       "저장됨" 표시는 실제로 성공을 확인한 곳(syncOk)에서만 띄운다.
+       그렇지 않으면 권한 오류로 실패했을 때도 배지가 먼저 성공을 보여준 뒤
+       에러 토스트가 뒤늦게 뜨는 모순이 생긴다. */
+    badge.classList.remove('syncing');
+    badge.classList.remove('show', 'done');
   }
+}
+function syncOk() {
+  const badge = $('sync-badge'), text = $('sync-badge-text');
+  if (!badge || !text) return;
+  clearTimeout(syncing._t);
+  badge.classList.add('show', 'done'); badge.classList.remove('syncing');
+  text.textContent = '저장됨';
+  syncing._t = setTimeout(() => badge.classList.remove('show', 'done'), 1200);
 }
 
 /* ── 서버로 변경분만 밀어넣기 ── */
@@ -253,6 +264,7 @@ async function pushDiff(silent) {
     return;
   }
   SHADOW = clone(DB);
+  syncOk();
   if (!silent) toast('저장되었습니다');
 }
 
