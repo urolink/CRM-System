@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805l';
+const APP_VERSION = '20260805m';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
