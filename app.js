@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805e';
+const APP_VERSION = '20260805f';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3286,6 +3286,42 @@ function renderSchedule() {
     nav.innerHTML = schNavBtns();
     body.innerHTML = schListView(list);
   }
+}
+
+/* 현재 화면에 보이는 것과 똑같은 목록(담당자 필터 + 오늘/이번주/월간 뷰 범위)을
+   엑셀·인쇄에도 그대로 쓴다 — renderSchedule() 의 분기 로직과 동일해야 한다. */
+function schCurrentList() {
+  const all = schItems();
+  if (SCH_OVERDUE) return all.filter(i => !i.done && i.date < today()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  if (SCH_VIEW === 'month') {
+    const base = parseD(SCH_REF || today()) || new Date();
+    const ym = base.getFullYear() + '-' + pad(base.getMonth() + 1);
+    return all.filter(i => String(i.date).slice(0, 7) === ym)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time || '').localeCompare(String(b.time || '')));
+  }
+  if (SCH_VIEW === 'week') {
+    const wk = schWeekRange(SCH_REF);
+    return all.filter(i => i.date >= wk.start && i.date <= wk.end)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time || '').localeCompare(String(b.time || '')));
+  }
+  const ref = SCH_REF || today();
+  return all.filter(i => i.date === ref).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+}
+function exportSchedule() {
+  const rows = schCurrentList();
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetFrom(rows.map(s => ({
+    날짜: s.date, 시간: s.time || '', 고객사: schLabel(s), 유형: s.type, 제목: s.title,
+    담당: s.rep || '', 상태: s.done ? '완료' : '예정', 결과: s.result || '',
+    다음액션: s.nextAction || '', 다음액션일: s.nextActionDate || '' }))), '일정');
+  XLSX.writeFile(wb, `urolink-schedule-${today()}.xlsx`);
+}
+function printSchedule() {
+  const rows = schCurrentList();
+  const html = listReportHTML('일정 목록',
+    ['날짜', '시간', '고객사', '유형', '제목', '담당', '상태', '결과'],
+    rows.map(s => [fmtDate(s.date), s.time || '-', schLabel(s), s.type, s.title, s.rep || '-', s.done ? '완료' : '예정', s.result || '']));
+  openListPrint('일정 목록', html);
 }
 
 /* ── 일 요약 ── */

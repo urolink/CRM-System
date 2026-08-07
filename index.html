@@ -16,8 +16,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- 주소 검색 (다음 우편번호 서비스 · 무료, 키 불필요) -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<link href="app.css?v=20260805e" rel="stylesheet">
-<script src="config.js?v=20260805e"></script>
+<link href="app.css?v=20260805f" rel="stylesheet">
+<script src="config.js?v=20260805f"></script>
 </head>
 <body>
 
@@ -385,6 +385,8 @@
     <div class="page-header">
       <h5><i class="bi bi-calendar-week me-2"></i>일정 <span class="text-muted" style="font-size:12px;font-weight:400">· 누가 오늘 어디 가는지</span></h5>
       <div class="d-flex flex-wrap" style="gap:6px">
+        <button class="btn btn-outline-success btn-sm" onclick="exportSchedule()"><i class="bi bi-file-earmark-excel me-1"></i>엑셀</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="printSchedule()"><i class="bi bi-printer me-1"></i>인쇄</button>
         <button class="btn btn-primary btn-sm" onclick="openSchModal()"><i class="bi bi-plus-lg me-1"></i>일정 추가</button>
         <button class="btn btn-outline-primary btn-sm" onclick="openDaySum()"><i class="bi bi-clipboard-check me-1"></i>일 요약</button>
       </div>
@@ -1350,6 +1352,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="app.js?v=20260805e"></script>
+<script src="app.js?v=20260805f"></script>
 </body>
 </html>
