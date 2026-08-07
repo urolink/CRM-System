@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805f';
+const APP_VERSION = '20260805g';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3307,13 +3307,76 @@ function schCurrentList() {
   const ref = SCH_REF || today();
   return all.filter(i => i.date === ref).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
 }
+/* 일정 한 건을 달력 셀 안에 넣을 한 줄로 — 시간·고객사·제목·완료 여부 */
+const schCalLine = s => (s.time ? s.time + ' ' : '') + schLabel(s) + (s.title ? ' ' + s.title : '') + (s.done ? ' (완료)' : '');
+/* 월간 뷰 → 진짜 달력 모양(월~일 7칸, 주 단위 행)의 시트. 화면의 schMonthView() 와 같은 배치 로직 */
+function schCalendarSheet(wb) {
+  const base = parseD(SCH_REF || today()) || new Date();
+  const y = base.getFullYear(), m = base.getMonth() + 1;
+  const startDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;   /* 월요일 시작 */
+  const lastDay = new Date(y, m, 0).getDate();
+  const byd = {};
+  schItems().forEach(i => { (byd[i.date] = byd[i.date] || []).push(i); });
+  const WD = ['월', '화', '수', '목', '금', '토', '일'];
+  const cellsNum = [];
+  for (let i = 0; i < startDow; i++) cellsNum.push(null);
+  for (let d = 1; d <= lastDay; d++) cellsNum.push(d);
+  while (cellsNum.length % 7) cellsNum.push(null);
+
+  const aoa = [[y + '년 ' + m + '월 일정'], WD];
+  for (let w = 0; w < cellsNum.length / 7; w++) {
+    const row = [];
+    for (let c = 0; c < 7; c++) {
+      const d = cellsNum[w * 7 + c];
+      if (d == null) { row.push(''); continue; }
+      const ds = y + '-' + pad(m) + '-' + pad(d);
+      const its = (byd[ds] || []).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+      row.push(String(d) + (its.length ? '\n' + its.map(schCalLine).join('\n') : ''));
+    }
+    aoa.push(row);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+  ws['!cols'] = WD.map(() => ({ wch: 26 }));
+  ws['!rows'] = aoa.map((_, i) => ({ hpt: i < 2 ? 20 : 90 }));
+  XLSX.utils.book_append_sheet(wb, ws, m + '월');
+}
+/* 이번주 뷰 → 월~일 7칸 한 줄짜리 달력 시트 */
+function schWeekSheet(wb) {
+  const wk = schWeekRange(SCH_REF);
+  const mon = parseD(wk.start);
+  const byd = {};
+  schItems().forEach(i => { (byd[i.date] = byd[i.date] || []).push(i); });
+  const WD = ['월', '화', '수', '목', '금', '토', '일'];
+  const dates = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); dates.push(ymd(d)); }
+  const aoa = [
+    [fmtDate(wk.start) + ' ~ ' + fmtDate(wk.end) + ' 일정'],
+    WD.map((w, i) => w + ' ' + fmtDate(dates[i]).slice(5)),
+    dates.map(ds => {
+      const its = (byd[ds] || []).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+      return its.length ? its.map(schCalLine).join('\n') : '';
+    })
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+  ws['!cols'] = WD.map(() => ({ wch: 26 }));
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 180 }];
+  XLSX.utils.book_append_sheet(wb, ws, '주간');
+}
 function exportSchedule() {
-  const rows = schCurrentList();
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheetFrom(rows.map(s => ({
-    날짜: s.date, 시간: s.time || '', 고객사: schLabel(s), 유형: s.type, 제목: s.title,
-    담당: s.rep || '', 상태: s.done ? '완료' : '예정', 결과: s.result || '',
-    다음액션: s.nextAction || '', 다음액션일: s.nextActionDate || '' }))), '일정');
+  /* 월간·이번주 뷰는 화면과 같은 달력 모양으로, 오늘·놓친 일정처럼 날짜가
+     흩어지거나 하루뿐인 경우는 달력이 의미가 없으므로 표 형식을 그대로 쓴다. */
+  if (!SCH_OVERDUE && SCH_VIEW === 'month') schCalendarSheet(wb);
+  else if (!SCH_OVERDUE && SCH_VIEW === 'week') schWeekSheet(wb);
+  else {
+    const rows = schCurrentList();
+    XLSX.utils.book_append_sheet(wb, sheetFrom(rows.map(s => ({
+      날짜: s.date, 시간: s.time || '', 고객사: schLabel(s), 유형: s.type, 제목: s.title,
+      담당: s.rep || '', 상태: s.done ? '완료' : '예정', 결과: s.result || '',
+      다음액션: s.nextAction || '', 다음액션일: s.nextActionDate || '' }))), '일정');
+  }
   XLSX.writeFile(wb, `urolink-schedule-${today()}.xlsx`);
 }
 function printSchedule() {
