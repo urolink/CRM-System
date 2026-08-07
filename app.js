@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805i';
+const APP_VERSION = '20260805j';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -719,7 +719,8 @@ function resolveCust(v) {
   const hit = DB.customers.find(x => x.name === nm) || DB.customers.find(x => x.id === nm);
   if (hit) return hit.id;
   const c = { id: uid(), name: nm, type: '의원', doctor: '', dept: '비뇨의학과', grade: 'C',
-    sido: '', gugun: '', rep: '', phone: '', addr: '', tags: [], memo: '', createdAt: today(), auto: true };
+    sido: '', gugun: '', rep: '', phone: '', addr: '', tags: [], memo: '', createdAt: today(), auto: true,
+    createdById: ME && ME.id };
   DB.customers.push(c);
   AUTO_ADDED.push('고객사 ' + nm);
   return c.id;
