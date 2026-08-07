@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805g';
+const APP_VERSION = '20260805h';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3558,22 +3558,25 @@ function schGoCustDetail() {
   setTimeout(() => openCustDetail(c.id), 200);
 }
 
-function openSchModal(id, preDate, forceProspectId) {
+function openSchModal(id, preDate, forceProspectId, forceCustId) {
   refreshSelects();
   const s = id ? DB.schedules.find(x => x.id === id) : null;
   const prospectId = forceProspectId || (s && s.prospectId) || '';
   const pr = prospectId ? prospectById(prospectId) : null;
+  /* 고객사 목록의 '일정 등록' 아이콘으로 열 때만 해당 — 수정 모드(s 있음)나
+     타겟병원 아이콘으로 열 때는 이 값을 쓰지 않는다 */
+  const custForced = (!s && !pr && forceCustId) ? custById(forceCustId) : null;
   $('sch-modal-title').textContent = pr ? (s ? '방문 결과 입력' : '타겟병원 일정 등록') : (s ? '일정 수정' : '일정 추가');
   $('s-del-btn').style.display = s ? 'inline-block' : 'none';
   $('s-id').value = s ? s.id : '';
   $('s-prospect-id').value = pr ? prospectId : '';
   $('s-date').value = s ? s.date : (preDate || today());
   $('s-time').value = s ? (s.time || '') : '';
-  $('s-cust').value = pr ? pr.name + ' (타겟병원)' : (s ? (s.custId ? custName(s.custId) : '') : '');
+  $('s-cust').value = pr ? pr.name + ' (타겟병원)' : (s ? (s.custId ? custName(s.custId) : '') : (custForced ? custForced.name : ''));
   $('s-cust').readOnly = !!pr;
   $('s-type').value = s ? s.type : '방문';
-  $('s-rep').value = s ? (s.rep || '') : (pr ? (pr.rep || '') : '');
-  $('s-title').value = s ? s.title : (pr ? (pr.name + ' 방문') : '');
+  $('s-rep').value = s ? (s.rep || '') : (pr ? (pr.rep || '') : (custForced ? (custForced.rep || '') : ''));
+  $('s-title').value = s ? s.title : (pr ? (pr.name + ' 방문') : (custForced ? (custForced.name + ' 방문') : ''));
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
   $('s-h-director').value = s ? (s.hospitalDirector || '') : '';
@@ -3604,10 +3607,10 @@ function openSchModal(id, preDate, forceProspectId) {
   }
   SCI_OPEN = true;
   schCustPeek();
-  /* 타겟병원 아이콘으로 새 방문 예정을 잡을 때는 아직 다녀오지 않았으니
+  /* 타겟병원·고객사 아이콘으로 새 방문 예정을 잡을 때는 아직 다녀오지 않았으니
      '방문 결과' 칸이 필요 없다 — 나중에 이 일정을 다시 열어 결과를 적을 때는
      (s 가 있는 수정 상태) prospectId 가 남아있어도 전체 폼을 그대로 보여준다. */
-  const hideResult = !!(forceProspectId && !s);
+  const hideResult = !!((forceProspectId || forceCustId) && !s);
   $('sch-result-col').style.display = hideResult ? 'none' : '';
   $('sch-left-col').className = hideResult ? 'col-lg-12' : 'col-lg-5';
   draftCheck('schModal');
@@ -3618,6 +3621,12 @@ function openSchModal(id, preDate, forceProspectId) {
 function openProspectSchModal(prospectId) {
   if (!prospectById(prospectId)) return;
   openSchModal(null, today(), prospectId);
+}
+/* 고객사 목록의 '일정 등록' 아이콘 — 타겟병원과 같은 방식으로, 이미 등록된
+   고객사에 대한 방문 예정 일정만 빠르게 잡는다. */
+function openCustSchModal(custId) {
+  if (!custById(custId)) return;
+  openSchModal(null, today(), null, custId);
 }
 function saveSch() {
   if (!$('s-title').value.trim()) return alert('방문 목적·내용을 입력해주세요.');
@@ -4210,7 +4219,10 @@ function renderCustomers() {
     <td class="text-center"><span class="grade-badge grade-${esc(c.grade)}">${esc(c.grade)}</span></td>
     <td class="text-end fw-bold">${comma(custWonAmount(c.id))}</td>
     <td>${(c.tags || []).slice(0, 3).map(t => `<span class="tag-chip">${esc(String(t).trim())}</span>`).join('')}</td>
-    <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="openCustModal('${c.id}')"><i class="bi bi-pencil"></i></button></td>
+    <td class="text-end">
+      <button class="btn btn-sm btn-outline-success me-1" title="일정 등록" onclick="openCustSchModal('${c.id}')"><i class="bi bi-calendar-plus"></i></button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openCustModal('${c.id}')"><i class="bi bi-pencil"></i></button>
+    </td>
   </tr>`).join('') : `<tr><td colspan="11" class="table-empty">고객사가 없습니다</td></tr>`;
   ['name','region','grade','won'].forEach(f => { const el = $('c-arr-' + f); if (el) el.textContent = CUST_SORT.f === f ? (CUST_SORT.dir > 0 ? ' ▲' : ' ▼') : ''; });
   const allCb = $('c-sel-all');
