@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805j';
+const APP_VERSION = '20260805k';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2926,7 +2926,12 @@ function deleteDealById(id) {
 /* ── 방문일지 ── */
 /* 방문일지의 고객사 칸 표시 — 고객사 상담은 custId, 타겟병원 상담은 prospectId 를 쓴다 */
 function logCustLabel(l) {
-  if (l.custId) return custName(l.custId);
+  if (l.custId) {
+    const c = custById(l.custId);
+    /* 고객사가 나중에 삭제돼도, 작성 시점에 찍어둔 이름(custName)이 있으면
+       그걸로 계속 보여준다 — "삭제된 고객사"로 바뀌면 누구였는지 알 수 없다. */
+    return c ? c.name : (l.custName || '삭제된 고객사');
+  }
   if (l.prospectId) {
     const p = prospectById(l.prospectId);
     return (p ? p.name : (l.prospectName || '삭제된 타겟병원')) + ' (타겟병원)';
@@ -2958,7 +2963,7 @@ function openLogModal(id, custId, forceProspectId) {
   $('l-id').value = l ? l.id : '';
   $('l-prospect-id').value = pr ? prospectId : '';
   $('l-date').value = l ? l.date : today();
-  $('l-cust').value = pr ? pr.name + ' (타겟병원)' : (l ? custName(l.custId) : (custId ? custName(custId) : ''));
+  $('l-cust').value = pr ? pr.name + ' (타겟병원)' : (l ? logCustLabel(l) : (custId ? custName(custId) : ''));
   $('l-cust').readOnly = !!pr;
   $('l-type').value = l ? l.type : '방문';
   $('l-interest').value = l && l.interest ? ((prodByName(l.interest) || {}).code || '') : '';
@@ -2988,7 +2993,10 @@ function saveLog() {
   if (!$('l-content').value.trim()) return alert('상담 내용을 입력해주세요.');
   const p = prodByCode($('l-interest').value);
   const prospectName = prospectId ? ((prospectById(prospectId) || {}).name || '') : '';
-  const row = { custId: prospectId ? '' : resolveCust($('l-cust').value), prospectId, prospectName,
+  /* 고객사가 나중에 삭제돼도, 작성 시점에 찍어둔 이름(custName)이 있으면
+     그걸로 계속 보여준다 — 타겟병원의 prospectName 과 같은 방식. */
+  const custIdV = prospectId ? '' : resolveCust($('l-cust').value);
+  const row = { custId: custIdV, prospectId, prospectName, custName: custIdV ? custName(custIdV) : '',
     date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value,
@@ -3009,7 +3017,7 @@ function saveLog() {
      기존에 만들어둔 후속 일정(schId)을 갱신한다. */
   if (row.nextActionDate) {
     const schRow = {
-      date: row.nextActionDate, custId: row.custId, prospectId, prospectName, src: 'nextAction',
+      date: row.nextActionDate, custId: row.custId, prospectId, prospectName, custName: row.custName, src: 'nextAction',
       type: row.type === '내부' ? '내부' : row.type, title: row.nextAction || cur.content.slice(0, 40),
       rep: row.rep, interest: row.interest
     };
@@ -3048,7 +3056,12 @@ let SCH_REF = null;      /* 기준일(null = 오늘) */
 function schToday() { return today(); }
 /* 일정의 고객사 칸 표시 — 고객사 딜은 custId, 타겟병원 방문 예정은 prospectId 를 쓴다 */
 function schCustLabel(s) {
-  if (s.custId) return custName(s.custId);
+  if (s.custId) {
+    const c = custById(s.custId);
+    /* 고객사가 나중에 삭제돼도, 일정을 만든 시점에 찍어둔 이름(custName)이
+       있으면 그걸로 계속 보여준다 — "삭제된 고객사"로 바뀌면 누구였는지 알 수 없다. */
+    return c ? c.name : (s.custName || '삭제된 고객사');
+  }
   /* 그 타겟병원이 나중에 삭제돼도, 일정을 만든 시점에 찍어둔 이름(prospectName)이
      있으면 그걸로 계속 보여준다 — "삭제된 타겟병원"으로 바뀌면 누구였는지 알 수 없다. */
   if (s.prospectId) {
@@ -3062,7 +3075,7 @@ function schCustLabel(s) {
    병원명만 깔끔하게 보여주고 '(다음액션)' 만 붙인다. */
 const schLabel = s => {
   if (s.src === 'nextAction') {
-    const nm = s.custId ? custName(s.custId)
+    const nm = s.custId ? ((custById(s.custId) || {}).name || s.custName || '삭제된 고객사')
       : s.prospectId ? ((prospectById(s.prospectId) || {}).name || s.prospectName || '삭제된 타겟병원')
       : '내부';
     return nm + ' (다음액션)';
@@ -3597,7 +3610,7 @@ function openSchModal(id, preDate, forceProspectId, forceCustId) {
   $('s-prospect-id').value = pr ? prospectId : '';
   $('s-date').value = s ? s.date : (preDate || today());
   $('s-time').value = s ? (s.time || '') : '';
-  $('s-cust').value = pr ? pr.name + ' (타겟병원)' : (s ? (s.custId ? custName(s.custId) : '') : (custForced ? custForced.name : ''));
+  $('s-cust').value = pr ? pr.name + ' (타겟병원)' : (s ? (s.custId ? schCustLabel(s) : '') : (custForced ? custForced.name : ''));
   $('s-cust').readOnly = !!pr;
   $('s-type').value = s ? s.type : '방문';
   $('s-rep').value = s ? (s.rep || '') : (pr ? (pr.rep || '') : (custForced ? (custForced.rep || '') : ''));
@@ -3664,10 +3677,13 @@ function saveSch() {
   /* 타겟병원 이름은 지금 시점에 찍어둔다 — 나중에 그 타겟병원이 삭제돼도
      일정에는 "삭제된 타겟병원"이 아니라 원래 이름이 그대로 남아있어야 한다. */
   const prospectName = prospectId ? ((prospectById(prospectId) || {}).name || '') : '';
+  /* 고객사가 나중에 삭제돼도, 일정을 만든 시점에 찍어둔 이름(custName)이
+     있으면 그걸로 계속 보여준다 — 위 prospectName 과 같은 방식. */
+  const custNameSnap = custId ? custName(custId) : '';
   /* 결과를 적었으면 완료로 본다 (다녀와서 기록한 것이므로) */
   const done = $('s-done').checked || !!result;
   const row = {
-    date: $('s-date').value || today(), time: $('s-time').value, custId, prospectId, prospectName,
+    date: $('s-date').value || today(), time: $('s-time').value, custId, prospectId, prospectName, custName: custNameSnap,
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
     interest: p ? p.name : '',
@@ -3692,7 +3708,7 @@ function saveSch() {
   /* 결과를 방문일지로도 남긴다 → 고객사(또는 타겟병원) 활동 타임라인에 축적 */
   if (result && (custId || prospectId) && $('s-mklog').checked) {
     const logRow = {
-      custId, prospectId, prospectName, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
+      custId, prospectId, prospectName, custName: custNameSnap, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
       grade: row.grade, visitPurpose: cur.title,
       hospitalDirector: row.hospitalDirector, hospitalContact: row.hospitalContact,
@@ -3715,7 +3731,7 @@ function saveSch() {
   if ($('s-mksch').checked && row.nextActionDate) {
     DB.schedules.push({
       id: uid(), createdById: ME && ME.id, date: row.nextActionDate,
-      time: '', custId, prospectId, prospectName, src: 'nextAction',
+      time: '', custId, prospectId, prospectName, custName: custNameSnap, src: 'nextAction',
       type: cur.type, title: row.nextAction || cur.title, rep, done: false, result: '', grade: 0,
       interest: row.interest, nextAction: '', nextActionDate: ''
     });
