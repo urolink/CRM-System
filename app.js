@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805k';
+const APP_VERSION = '20260805l';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4449,9 +4449,11 @@ function saveCust() {
     tags: $('c-tags').value.split(',').map(t => t.trim()).filter(Boolean), memo: $('c-memo').value.trim(),
     updatedAt: today(), updatedBy: curUserName() };
   const id = $('c-id').value;
-  if (id) Object.assign(custById(id), row);
-  else DB.customers.push(Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row));
+  let cur;
+  if (id) { cur = custById(id); Object.assign(cur, row); }
+  else { cur = Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row); DB.customers.push(cur); }
   save();
+  if (SCH_QUICK_ADD === 'cust') SCH_QA_RESULT = { kind: 'cust', row: cur };
   bootstrap.Modal.getInstance($('custModal')).hide();
   renderCustomers();
 }
@@ -4876,9 +4878,11 @@ function saveProspect() {
     nextAction: $('pr-next').value.trim(), nextActionDate: $('pr-next-date').value, memo: $('pr-memo').value.trim(),
     updatedAt: today(), updatedBy: curUserName() };
   const id = $('pr-id').value;
-  if (id) Object.assign(prospectById(id), row);
-  else DB.prospects.push(Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row));
+  let cur;
+  if (id) { cur = prospectById(id); Object.assign(cur, row); }
+  else { cur = Object.assign({ id: uid(), createdAt: today(), createdById: ME && ME.id }, row); DB.prospects.push(cur); }
   save();
+  if (SCH_QUICK_ADD === 'prospect') SCH_QA_RESULT = { kind: 'prospect', row: cur };
   bootstrap.Modal.getInstance($('prospectModal')).hide();
   renderProspects();
 }
@@ -6160,10 +6164,19 @@ function draftSave(modalId) {
   draftFieldEls(modalId).forEach(el => { data[el.id] = el.type === 'checkbox' ? el.checked : el.value; });
   try { localStorage.setItem(draftKey(cfg.scope, rowId), JSON.stringify({ t: Date.now(), data })); } catch (e) {}
 }
-function draftClear(modalId) {
+/* rowIdOverride 를 안 주면 지금 모달에 열려 있는 항목 기준(기존 동작). 일정 모달에서
+   고객사·타겟병원을 빠르게 추가하고 돌아올 때처럼, 모달이 닫혀 있는 동안 특정 항목의
+   초안을 다뤄야 할 때는 명시적으로 넘긴다. */
+function draftClear(modalId, rowIdOverride) {
   const cfg = DRAFT_MODALS[modalId]; if (!cfg) return;
-  const rowId = ($(cfg.idField) || {}).value || '';
+  const rowId = rowIdOverride != null ? rowIdOverride : (($(cfg.idField) || {}).value || '');
   try { localStorage.removeItem(draftKey(cfg.scope, rowId)); } catch (e) {}
+}
+function draftApplyData(data) {
+  Object.keys(data).forEach(id => {
+    const el = $(id); if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!data[id]; else el.value = data[id];
+  });
 }
 /* 모달을 열 때 호출 — 기본값을 다 채운 뒤, 마지막으로 부른다 */
 function draftCheck(modalId) {
@@ -6174,10 +6187,7 @@ function draftCheck(modalId) {
   let parsed; try { parsed = JSON.parse(raw); } catch (e) { return; }
   if (!parsed || !parsed.data) return;
   if (!confirm('작성하다 만 임시 저장된 내용이 있습니다. 불러올까요?')) { draftClear(modalId); return; }
-  Object.keys(parsed.data).forEach(id => {
-    const el = $(id); if (!el) return;
-    if (el.type === 'checkbox') el.checked = !!parsed.data[id]; else el.value = parsed.data[id];
-  });
+  draftApplyData(parsed.data);
   if (modalId === 'dealModal') toggleLostBox();
   if (modalId === 'schModal') purchaseStatusChange('s');
   if (modalId === 'logModal') purchaseStatusChange('l');
@@ -6191,6 +6201,47 @@ document.addEventListener('change', e => {
   const modal = e.target.closest && e.target.closest('.modal');
   if (modal && DRAFT_MODALS[modal.id]) draftSave(modal.id);
 });
+
+/* ── 일정 모달에서 바로 고객사·타겟병원 추가 ──
+   기존 '고객사 추가' / '타겟병원 추가' 모달을 그대로 띄우고(별도 간이 입력폼을
+   새로 만들지 않는다), 저장(또는 취소)하고 나면 일정 모달로 돌아와 방금 만든
+   고객사·타겟병원을 자동으로 채운다. 작성 중이던 다른 값들은 초안 저장 메커니즘을
+   그대로 재사용해 잃어버리지 않는다. */
+let SCH_QUICK_ADD = null;      // null | 'cust' | 'prospect'
+let SCH_QUICK_ADD_ID = '';     // 되돌아갈 일정의 s-id (신규 작성 중이면 '')
+let SCH_QA_RESULT = null;      // 추가 모달이 저장에 성공하면 { kind, row } — 취소하면 null 그대로
+function schQuickAddCust() {
+  SCH_QUICK_ADD = 'cust'; SCH_QUICK_ADD_ID = $('s-id').value; SCH_QA_RESULT = null;
+  draftSave('schModal');
+  bootstrap.Modal.getInstance($('schModal')).hide();
+  setTimeout(() => openCustModal(), 300);
+}
+function schQuickAddProspect() {
+  SCH_QUICK_ADD = 'prospect'; SCH_QUICK_ADD_ID = $('s-id').value; SCH_QA_RESULT = null;
+  draftSave('schModal');
+  bootstrap.Modal.getInstance($('schModal')).hide();
+  setTimeout(() => openProspectModal(), 300);
+}
+/* 고객사·타겟병원 추가 모달이 (저장이든 취소든) 닫히면 항상 호출된다 */
+function schQuickAddResume() {
+  const mode = SCH_QUICK_ADD, id = SCH_QUICK_ADD_ID, res = SCH_QA_RESULT;
+  SCH_QUICK_ADD = null; SCH_QUICK_ADD_ID = ''; SCH_QA_RESULT = null;
+  let raw; try { raw = localStorage.getItem(draftKey('sch', id)); } catch (e) { raw = null; }
+  draftClear('schModal', id);
+  setTimeout(() => {
+    openSchModal(id || null);
+    if (raw) { try { draftApplyData(JSON.parse(raw).data); } catch (e) {} }
+    if (res && res.kind === 'cust') {
+      $('s-cust').value = res.row.name; $('s-cust').readOnly = false; $('s-prospect-id').value = '';
+    } else if (res && res.kind === 'prospect') {
+      $('s-cust').value = res.row.name + ' (타겟병원)'; $('s-cust').readOnly = true; $('s-prospect-id').value = res.row.id;
+    }
+    purchaseStatusChange('s');
+    schCustPeek();
+  }, 300);
+}
+$('custModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD === 'cust') schQuickAddResume(); });
+$('prospectModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD === 'prospect') schQuickAddResume(); });
 
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
