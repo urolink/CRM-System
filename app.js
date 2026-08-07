@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805h';
+const APP_VERSION = '20260805i';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2965,6 +2965,19 @@ function openLogModal(id, custId, forceProspectId) {
   $('l-content').value = l ? l.content : '';
   $('l-next').value = l ? (l.nextAction || '') : '';
   $('l-next-date').value = l ? (l.nextActionDate || '') : '';
+  /* 일정의 '방문 결과' 와 같은 형식 — 병원 현황·구매 결과·고객 반응 */
+  $('l-h-director').value = l ? (l.hospitalDirector || '') : '';
+  $('l-h-contact').value = l ? (l.hospitalContact || '') : '';
+  $('l-h-doctor-count').value = l && num(l.doctorCount) ? num(l.doctorCount) : '';
+  $('l-h-main-procedure').value = l ? (l.mainProcedure || '') : '';
+  $('l-h-competitor').value = l ? (l.hospitalCompetitor || '') : '';
+  $('l-purchase-status').value = l ? (l.purchaseStatus || '') : '';
+  $('l-purchase-amount').value = l && num(l.purchaseAmount) ? comma(l.purchaseAmount) : '';
+  $('l-propose-amount').value = l && num(l.proposeAmount) ? comma(l.proposeAmount) : '';
+  $('l-nonpurchase-reason').value = l ? (l.nonPurchaseReason || '') : '';
+  purchaseStatusChange('l');
+  L_GRADE = l ? num(l.grade) : 0;
+  renderGradeChips('l-grade-chips', L_GRADE, 'pickLGrade');
   draftCheck('logModal');
   new bootstrap.Modal($('logModal')).show();
 }
@@ -2977,7 +2990,14 @@ function saveLog() {
   const row = { custId: prospectId ? '' : resolveCust($('l-cust').value), prospectId, prospectName,
     date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
-    nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value };
+    nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value,
+    /* 일정의 '방문 결과' 와 같은 형식으로 저장 — 영업 활동 보고서(printLogReport)가 그대로 채워진다 */
+    grade: L_GRADE || 0,
+    hospitalDirector: trimv($('l-h-director').value), hospitalContact: trimv($('l-h-contact').value),
+    doctorCount: num($('l-h-doctor-count').value), mainProcedure: trimv($('l-h-main-procedure').value),
+    hospitalCompetitor: trimv($('l-h-competitor').value),
+    purchaseStatus: $('l-purchase-status').value, purchaseAmount: num($('l-purchase-amount').value),
+    proposeAmount: num($('l-propose-amount').value), nonPurchaseReason: trimv($('l-nonpurchase-reason').value) };
   const id = $('l-id').value;
   let cur;
   if (id) { cur = DB.logs.find(x => x.id === id); Object.assign(cur, row); }
@@ -3447,22 +3467,26 @@ const SCH_GRADES = [
   { v: 2, l: '보통',      cls: 'g2', ic: 'bi-emoji-neutral' },
   { v: 1, l: '부정',      cls: 'g1', ic: 'bi-emoji-frown' }
 ];
-let S_GRADE = 0;
-function renderGradeChips() {
-  const box = $('s-grade-chips');
+/* 일정의 '방문 결과' 와 고객사 상세의 '일지 작성' 이 같은 형식을 쓰므로
+   (s-* / l-* 접두어만 다름) 고객 반응 칩·구매여부 토글을 여기서 공용으로 둔다. */
+let S_GRADE = 0, L_GRADE = 0;
+function renderGradeChips(boxId, val, setterFn) {
+  const box = $(boxId);
   if (!box) return;
   box.innerHTML = SCH_GRADES.map(g =>
-    '<span class="gr-chip ' + g.cls + (S_GRADE === g.v ? ' on' : '') + '" onclick="pickGrade(' + g.v + ')">'
+    '<span class="gr-chip ' + g.cls + (val === g.v ? ' on' : '') + '" onclick="' + setterFn + '(' + g.v + ')">'
     + '<i class="bi ' + g.ic + '"></i>' + g.l + '</span>').join('')
-    + (S_GRADE ? '<span class="gr-chip" onclick="pickGrade(0)" title="선택 해제"><i class="bi bi-x"></i></span>' : '');
+    + (val ? '<span class="gr-chip" onclick="' + setterFn + '(0)" title="선택 해제"><i class="bi bi-x"></i></span>' : '');
 }
-function pickGrade(v) { S_GRADE = (S_GRADE === v ? 0 : v); renderGradeChips(); }
-/* 방문 결과 — 구매여부에 따라 관련 칸만 보여준다 (영업 활동 보고서 양식) */
-function purchaseStatusChange() {
-  const v = $('s-purchase-status').value;
-  $('s-purchase-amount-wrap').style.display = v === '구매' ? 'block' : 'none';
-  $('s-propose-amount-wrap').style.display = (v === '미구매' || v === '보류') ? 'block' : 'none';
-  $('s-nonpurchase-wrap').style.display = v === '미구매' ? 'block' : 'none';
+function pickGrade(v) { S_GRADE = (S_GRADE === v ? 0 : v); renderGradeChips('s-grade-chips', S_GRADE, 'pickGrade'); }
+function pickLGrade(v) { L_GRADE = (L_GRADE === v ? 0 : v); renderGradeChips('l-grade-chips', L_GRADE, 'pickLGrade'); }
+/* 방문 결과 — 구매여부에 따라 관련 칸만 보여준다 (영업 활동 보고서 양식). prefix 로 s-*(일정) / l-*(방문일지) 공용 */
+function purchaseStatusChange(prefix) {
+  prefix = prefix || 's';
+  const v = $(prefix + '-purchase-status').value;
+  $(prefix + '-purchase-amount-wrap').style.display = v === '구매' ? 'block' : 'none';
+  $(prefix + '-propose-amount-wrap').style.display = (v === '미구매' || v === '보류') ? 'block' : 'none';
+  $(prefix + '-nonpurchase-wrap').style.display = v === '미구매' ? 'block' : 'none';
 }
 function gradeLabel(v) { const g = SCH_GRADES.find(x => x.v === num(v)); return g ? g.l : ''; }
 
@@ -3593,7 +3617,7 @@ function openSchModal(id, preDate, forceProspectId, forceCustId) {
   $('s-next').value = s ? (s.nextAction || '') : '';
   $('s-next-date').value = s ? (s.nextActionDate || '') : '';
   S_GRADE = s ? num(s.grade) : 0;
-  renderGradeChips();
+  renderGradeChips('s-grade-chips', S_GRADE, 'pickGrade');
   /* 이미 방문일지로 기록된 건은 중복 생성하지 않도록 기본 해제 */
   $('s-mklog').checked = !(s && s.logId);
   $('s-mksch').checked = false;
@@ -6138,7 +6162,8 @@ function draftCheck(modalId) {
     if (el.type === 'checkbox') el.checked = !!parsed.data[id]; else el.value = parsed.data[id];
   });
   if (modalId === 'dealModal') toggleLostBox();
-  if (modalId === 'schModal') purchaseStatusChange();
+  if (modalId === 'schModal') purchaseStatusChange('s');
+  if (modalId === 'logModal') purchaseStatusChange('l');
 }
 let DRAFT_TIMER = null;
 document.addEventListener('input', e => {
