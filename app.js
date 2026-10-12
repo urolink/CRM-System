@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012g';
+const APP_VERSION = '20261012h';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3642,9 +3642,12 @@ function openSchModal(id, preDate, forceProspectId, forceCustId) {
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
   $('s-h-director').value = s ? (s.hospitalDirector || '') : '';
-  renderContacts(s ? (s.contactPersons || []) : [], 's-contacts');
+  /* 아직 결과를 안 적은 예정 일정이면 같은 병원의 지난 방문에서 적은 담당자를 미리 채운다(고쳐 쓰면 된다) */
+  const prevCt = (s && !s.result && !(s.contactPersons || []).length) ? prevVisitContacts(s) : null;
+  renderContacts(s ? ((s.contactPersons || []).length ? s.contactPersons : (prevCt ? prevCt.list : [])) : [], 's-contacts');
   /* 예전 기록은 '병원 내 담당자' 글만 있고 연락처가 없다 — 참고로 보여주고 연락처를 새로 받는다 */
-  $('s-contacts-legacy').textContent = (s && !(s.contactPersons || []).length && s.hospitalContact)
+  $('s-contacts-legacy').textContent = prevCt ? '지난 방문(' + fmtDate(prevCt.date) + ')에서 적은 담당자를 불러왔습니다. 달라졌으면 고쳐주세요.'
+    : (s && !(s.contactPersons || []).length && s.hospitalContact)
     ? '이전에 적은 병원 내 담당자: ' + s.hospitalContact : '';
   $('s-h-doctor-count').value = s && num(s.doctorCount) ? num(s.doctorCount) : '';
   $('s-h-main-procedure').value = s ? (s.mainProcedure || '') : '';
@@ -6575,8 +6578,31 @@ function crLegacyHtml() {
 }
 /* 지난 일정·방문일지의 담당자를 고객사/타겟병원 연락처에 반영(관리자 1회성, 여러 번 눌러도 안전).
    dry=true 면 저장 없이 건수만 센다. 날짜순으로 처리해 메모의 방문일이 가장 이른 날이 되게 한다. */
+/* 같은 병원의 가장 최근 지난 방문(방문일지·결과 입력된 일정)에서 적은 담당자 — 번호가 있는 사람만, 없으면 null */
+function prevVisitContacts(sch) {
+  const pid = sch.prospectId || '', cid = sch.custId || '';
+  const nm = String(pid ? (sch.prospectName || (prospectById(pid) || {}).name || '') : (cid ? ((custById(cid) || {}).name || sch.custName || '') : '')).replace(/\s+/g, '');
+  const same = r => (pid && r.prospectId === pid) || (cid && r.custId === cid)
+    || (nm && String(r.prospectId ? (r.prospectName || '') : (r.custName || (r.custId && (custById(r.custId) || {}).name) || '')).replace(/\s+/g, '') === nm);
+  let best = null;
+  const cand = r => {
+    if (r === sch || String(r.date) >= String(sch.date) || !same(r)) return;
+    const list = (r.contactPersons || []).filter(p => trimv(p.name) && !p.noDirect && trimv(p.phone));
+    if (list.length && (!best || String(r.date) > String(best.date))) best = { date: r.date, list: list };
+  };
+  (DB.logs || []).forEach(cand);
+  (DB.schedules || []).forEach(x => { if (x.result) cand(x); });
+  return best ? { date: best.date, list: best.list.map(p => ({ role: p.role || '', name: p.name, phone: p.phone, memo: p.memo || '' })) } : null;
+}
 function crBackfillRun(dry) {
-  const st = { ct: 0, fill: 0, recs: 0, legacy: 0, parties: {} };
+  const st = { ct: 0, fill: 0, recs: 0, legacy: 0, pend: 0, parties: {} };
+  (DB.schedules || []).forEach(s => {                       // 앞으로 예정된(결과 없는) 일정에 지난 방문의 담당자 미리 채우기
+    if (s.result || s.type === '내부' || (s.contactPersons || []).length || !(s.custId || s.prospectId)) return;
+    const pv = prevVisitContacts(s);
+    if (!pv) return;
+    st.pend++;
+    if (!dry) s.contactPersons = pv.list;
+  });
   const recs = [];
   (DB.logs || []).forEach(l => recs.push({ r: l, kind: 'log' }));
   (DB.schedules || []).forEach(s => { if (s.result && s.type !== '내부') recs.push({ r: s, kind: 'sch' }); });
@@ -6617,12 +6643,12 @@ function crBackfillRun(dry) {
 function crBackfill() {
   if (!isAdmin()) return;
   const d = crBackfillRun(true);
-  if (!d.ct && !d.fill) return alert('새로 반영할 담당자가 없습니다.' + (d.legacy ? NL + '(연락처 칸 없이 글로만 적힌 예전 기록 ' + d.legacy + '건은 번호를 자동으로 나눌 수 없어 건너뜁니다)' : ''));
-  if (!confirm('지난 기록에서 연락처 ' + d.ct + '명을 ' + d.partyN + '곳의 고객사·타겟병원 명단에 추가하고, 방문일지에 빠진 담당자 ' + d.fill + '건을 채웁니다.' + NL + '진행할까요?')) return;
+  if (!d.ct && !d.fill && !d.pend) return alert('새로 반영할 담당자가 없습니다.' + (d.legacy ? NL + '(연락처 칸 없이 글로만 적힌 예전 기록 ' + d.legacy + '건은 번호를 자동으로 나눌 수 없어 건너뜁니다)' : ''));
+  if (!confirm('지난 기록에서 연락처 ' + d.ct + '명을 ' + d.partyN + '곳의 고객사·타겟병원 명단에 추가하고, 방문일지에 빠진 담당자 ' + d.fill + '건을 채우고, 예정 일정 ' + d.pend + '건에 지난 방문의 담당자를 미리 채웁니다.' + NL + '진행할까요?')) return;
   const r = crBackfillRun(false);
   save();
   renderContactReview();
-  alert('반영했습니다: 연락처 ' + r.ct + '명 추가 (' + r.partyN + '곳), 방문일지 보완 ' + r.fill + '건.' + (r.legacy ? NL + '글로만 적힌 예전 기록 ' + r.legacy + '건은 건너뛰었습니다.' : ''));
+  alert('반영했습니다: 연락처 ' + r.ct + '명 추가 (' + r.partyN + '곳), 방문일지 보완 ' + r.fill + '건, 예정 일정 미리 채움 ' + r.pend + '건.' + (r.legacy ? NL + '글로만 적힌 예전 기록 ' + r.legacy + '건은 건너뛰었습니다.' : ''));
 }
 function crConfirm(i) {
   if (!isAdmin()) return;
