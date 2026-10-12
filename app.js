@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012i';
+const APP_VERSION = '20261012j';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -6435,6 +6435,7 @@ $('prospectModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD
      · 점검 목록은 관리자 화면을 열 때만 계산해 그린다(저장하지 않는다).
      · '정상으로 확인' 표시는 관리자만 읽을 수 있는 ul_contact_reviews 테이블(migration_v7.sql)에 둔다.
    ══════════════════════════════════════════════════════════════ */
+const hnorm = x => String(x || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, '');
 const crPk = p => trimv(p && p.name).replace(/\s+/g, '');
 const isDirectRow = (p, mainK) => { const k = ctPhoneKey(p && p.phone); return !!(p && !p.noDirect && k && k !== mainK); };
 function crPartyOf(l) {
@@ -6578,9 +6579,9 @@ function crLegacyHtml() {
 /* 같은 병원의 가장 최근 지난 방문(방문일지·결과 입력된 일정)에서 적은 담당자 — 번호가 있는 사람만, 없으면 null */
 function prevVisitContacts(sch) {
   const pid = sch.prospectId || '', cid = sch.custId || '';
-  const nm = String(pid ? (sch.prospectName || (prospectById(pid) || {}).name || '') : (cid ? ((custById(cid) || {}).name || sch.custName || '') : '')).replace(/\s+/g, '');
-  const same = r => (pid && r.prospectId === pid) || (cid && r.custId === cid)
-    || (nm && String(r.prospectId ? (r.prospectName || '') : (r.custName || (r.custId && (custById(r.custId) || {}).name) || '')).replace(/\s+/g, '') === nm);
+  const nm = hnorm(pid ? (sch.prospectName || (prospectById(pid) || {}).name || '') : (cid ? ((custById(cid) || {}).name || sch.custName || '') : ''));
+  const nameOf = r => hnorm(r.prospectId ? (r.prospectName || (prospectById(r.prospectId) || {}).name || '') : (r.custId ? ((custById(r.custId) || {}).name || r.custName || '') : ''));
+  const same = r => (pid && r.prospectId === pid) || (cid && r.custId === cid) || (nm && nameOf(r) === nm);
   let best = null;
   const cand = r => {
     if (r === sch || String(r.date) >= String(sch.date) || !same(r)) return;
@@ -6592,7 +6593,7 @@ function prevVisitContacts(sch) {
   return best ? { date: best.date, list: best.list.map(p => ({ role: p.role || '', name: p.name, phone: p.phone, memo: p.memo || '' })) } : null;
 }
 function crBackfillRun(dry) {
-  const st = { ct: 0, fill: 0, recs: 0, legacy: 0, pend: 0, parties: {} };
+  const st = { ct: 0, fill: 0, recs: 0, legacy: 0, pend: 0, marked: 0, parties: {} };
   (DB.schedules || []).forEach(s => {                       // 앞으로 예정된(결과 없는) 일정에 지난 방문의 담당자 미리 채우기
     if (s.result || s.type === '내부' || (s.contactPersons || []).length || !(s.custId || s.prospectId)) return;
     const pv = prevVisitContacts(s);
@@ -6611,17 +6612,17 @@ function crBackfillRun(dry) {
       const lg = (DB.logs || []).find(l => l.id === r.logId);
       if (lg && !(lg.contactPersons || []).length) { st.fill++; if (!dry) { lg.contactPersons = JSON.parse(JSON.stringify(cps)); lg.hospitalContact = contactPersonsText({ contactPersons: cps }); } }
     }
-    if (r.ctSynced) return;
+    if (r.ctBf) return;
     st.recs++;
     /* 반영할 병원: 기록에 연결된 병원 + 이름이 같은 고객사·타겟병원(연결이 끊겼거나, 같은 병원이 양쪽에 있는 경우) */
-    const nm = String(r.prospectId ? (r.prospectName || '') : (r.custName || '')).replace(/\s+/g, '');
+    const nm = hnorm(r.prospectId ? (r.prospectName || '') : (r.custName || ''));
     const targets = [];
     const addT = (kind, p) => { if (p && !targets.some(t => t.p === p)) targets.push({ kind: kind, p: p }); };
     if (r.prospectId) addT('p', prospectById(r.prospectId)); else if (r.custId) addT('c', custById(r.custId));
-    const lbl = String((targets[0] && targets[0].p.name) || nm).replace(/\s+/g, '');
+    const lbl = hnorm((targets[0] && targets[0].p.name) || nm);
     if (lbl) {
-      (DB.customers || []).forEach(c => { if (String(c.name).replace(/\s+/g, '') === lbl) addT('c', c); });
-      (DB.prospects || []).forEach(p => { if (String(p.name).replace(/\s+/g, '') === lbl) addT('p', p); });
+      (DB.customers || []).forEach(c => { if (hnorm(c.name) === lbl) addT('c', c); });
+      (DB.prospects || []).forEach(p => { if (hnorm(p.name) === lbl) addT('p', p); });
     }
     if (!targets.length) return;
     targets.forEach(t => {
@@ -6632,7 +6633,7 @@ function crBackfillRun(dry) {
       } else { n = syncVisitContacts(t.kind === 'c' ? t.p.id : '', t.kind === 'p' ? t.p.id : '', cps, [], r.date); }
       if (n) { st.ct += n; st.parties[t.kind + ':' + t.p.id] = 1; }
     });
-    if (!dry) r.ctSynced = true;
+    if (!dry) { r.ctSynced = true; r.ctBf = true; st.marked++; }
   });
   st.partyN = Object.keys(st.parties).length;
   return st;
@@ -6725,11 +6726,10 @@ function startApp() {
 function crBackfillAuto() {
   try {
     if (!isAdmin() || !DB) return;
-    const d = crBackfillRun(true);
-    if (!d.ct && !d.fill && !d.pend) return;
-    const r = crBackfillRun(false);
+    const r = crBackfillRun(false);                         // 처리한 기록엔 ctBf 표시를 남겨 다시 처리하지 않는다
+    if (!r.ct && !r.fill && !r.pend && !r.marked) return;
     save(true);
-    toast('지난 기록의 담당자 연락처를 반영했습니다 (연락처 ' + r.ct + '명)');
+    if (r.ct || r.pend) toast('지난 기록의 담당자 연락처를 반영했습니다 (연락처 ' + r.ct + '명, 예정 일정 ' + r.pend + '건)');
   } catch (e) { console.error(e); }
 }
 
