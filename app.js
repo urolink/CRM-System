@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012d';
+const APP_VERSION = '20261012e';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -6552,7 +6552,49 @@ function renderContactReview() {
   box.innerHTML = '<div class="cr-note"><b>관리자에게만 보이는 화면입니다.</b> 영업담당자에게는 이 목록도, 확인 표시도 보이지 않습니다.<br>'
     + '여기 있는 건 "잘못"이 아니라 <b>한 번 물어볼 만한 곳</b>입니다. 병원이 대표번호 연락을 원하는 경우도 정상이에요. '
     + '담당자에게 "항상 직통으로 소통하세요?" 하고 물어보거나 병원에 확인한 뒤, 문제가 없으면 <b>[정상으로 확인]</b>을 누르면 이 목록에서 빠지고 다시 뜨지 않습니다.</div>'
+    + '<div class="cr-note" style="margin-top:10px"><b>지난 기록 연락처 반영</b> — 연락처 자동 추가 기능이 생기기 전에 방문일지·일정 결과에 적어둔 담당자를 고객사·타겟병원 연락처 명단에 한꺼번에 넣습니다. '
+    + '이미 있는 번호·대표번호·"직통번호 없음"은 건너뛰고, 일정에만 있고 방문일지에는 빠진 담당자는 방문일지에도 채웁니다. 몇 번 눌러도 중복되지 않습니다. '
+    + '<button class="btn btn-sm btn-outline-primary ms-2" onclick="crBackfill()">지난 기록 반영하기</button></div>'
     + ['A', 'E'].map(sec).join('') + doneHtml;
+}
+/* 지난 일정·방문일지의 담당자를 고객사/타겟병원 연락처에 반영(관리자 1회성, 여러 번 눌러도 안전).
+   dry=true 면 저장 없이 건수만 센다. 날짜순으로 처리해 메모의 방문일이 가장 이른 날이 되게 한다. */
+function crBackfillRun(dry) {
+  const st = { ct: 0, fill: 0, recs: 0, legacy: 0, parties: {} };
+  const recs = [];
+  (DB.logs || []).forEach(l => recs.push({ r: l, kind: 'log' }));
+  (DB.schedules || []).forEach(s => { if (s.result && s.type !== '내부') recs.push({ r: s, kind: 'sch' }); });
+  recs.sort((a, b) => String(a.r.date).localeCompare(String(b.r.date)));
+  recs.forEach(x => {
+    const r = x.r, cps = (r.contactPersons || []).filter(p => crPk(p) || trimv(p.phone));
+    if (!cps.length) { if (trimv(r.hospitalContact)) st.legacy++; return; }
+    if (x.kind === 'sch' && r.logId) {                       // 일정에만 있고 방문일지엔 빠진 경우 채우기
+      const lg = (DB.logs || []).find(l => l.id === r.logId);
+      if (lg && !(lg.contactPersons || []).length) { st.fill++; if (!dry) { lg.contactPersons = JSON.parse(JSON.stringify(cps)); lg.hospitalContact = contactPersonsText({ contactPersons: cps }); } }
+    }
+    if (r.ctSynced) return;
+    st.recs++;
+    const party = r.prospectId ? prospectById(r.prospectId) : (r.custId ? custById(r.custId) : null);
+    if (!party) return;
+    let n;
+    if (dry) {
+      const mainK = ctPhoneKey(party.phone), have = new Set((party.contacts || []).map(c => ctPhoneKey(c.phone)).filter(Boolean));
+      n = 0; cps.forEach(c => { const k = ctPhoneKey(c.phone); if (c.noDirect || !k || k === mainK || have.has(k)) return; have.add(k); n++; });
+    } else { n = syncVisitContacts(r.custId, r.prospectId, cps, [], r.date); r.ctSynced = true; }
+    if (n) { st.ct += n; st.parties[(r.prospectId ? 'p:' : 'c:') + (r.prospectId || r.custId)] = 1; }
+  });
+  st.partyN = Object.keys(st.parties).length;
+  return st;
+}
+function crBackfill() {
+  if (!isAdmin()) return;
+  const d = crBackfillRun(true);
+  if (!d.ct && !d.fill) return alert('새로 반영할 담당자가 없습니다.' + (d.legacy ? NL + '(연락처 칸 없이 글로만 적힌 예전 기록 ' + d.legacy + '건은 번호를 자동으로 나눌 수 없어 건너뜁니다)' : ''));
+  if (!confirm('지난 기록에서 연락처 ' + d.ct + '명을 ' + d.partyN + '곳의 고객사·타겟병원 명단에 추가하고, 방문일지에 빠진 담당자 ' + d.fill + '건을 채웁니다.' + NL + '진행할까요?')) return;
+  const r = crBackfillRun(false);
+  save();
+  renderContactReview();
+  alert('반영했습니다: 연락처 ' + r.ct + '명 추가 (' + r.partyN + '곳), 방문일지 보완 ' + r.fill + '건.' + (r.legacy ? NL + '글로만 적힌 예전 기록 ' + r.legacy + '건은 건너뛰었습니다.' : ''));
 }
 function crConfirm(i) {
   if (!isAdmin()) return;
