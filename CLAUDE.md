@@ -52,7 +52,24 @@ version.json    자동 최신화용 버전
 migration.sql   Supabase 초기 스키마 (이미 실행됨)
 migration_v2.sql 계정 발급용 추가 스키마 (이미 실행됨)
 edge-admin-user.ts  비밀번호 변경·계정 삭제용 서버 함수 (이미 배포됨)
+.github/workflows/keep-supabase-awake.yml  Supabase 자동 일시정지 방지 (아래 참고)
 ```
+
+## Supabase 자동 일시정지 방지 (지우지 말 것)
+Supabase **무료 플랜은 7일 동안 활동이 없으면 프로젝트가 자동 일시정지**되어 로그인·데이터가
+전부 안 된다(2026-10에 연차관리 프로젝트가 실제로 이렇게 멈춤). 이를 막으려고
+`.github/workflows/keep-supabase-awake.yml` 이 **매일 09:23(KST)** 에 DB를 한 번 조회한다.
+
+- 조회 대상은 `ul_customers` (`/rest/v1/ul_customers?select=id&limit=1`). RLS 때문에 빈 목록
+  `[]` 이 와도 **HTTP 200 이면 정상**이다. 200 이 아니면 작업이 실패해 GitHub 가 실패 메일을 보낸다
+  (= 이미 정지됐다는 신호 → Supabase 대시보드에서 Resume).
+- 쓰는 키는 `config.js` 의 publishable 키와 같다(공개 키라 비밀값 아님). service_role 키는 절대 쓰지 말 것.
+- ⚠ **스케줄 실행은 저장소 기본 브랜치(`crm`)의 파일만 동작**한다. 기본 브랜치를 바꾸면 이 파일도
+  옮겨야 한다. 이 파일을 만지거나 `ul_customers` 테이블 이름을 바꾸면 워크플로도 같이 고칠 것.
+- GitHub 는 저장소에 **60일 넘게 커밋이 없으면 스케줄을 자동으로 끈다.** 그때는 Actions 탭 →
+  "Keep Supabase awake" → **Enable workflow** 를 한 번 누르면 된다.
+- 수동 실행(테스트): Actions 탭 → Keep Supabase awake → Run workflow.
+- 연차관리(PTO-System) 저장소에도 같은 워크플로가 있다(그쪽 기본 브랜치는 `main`).
 
 `app.js` 섹션 순서: 상수 → 유틸 → 데이터계층(로컬/서버 분기·diff 동기화) → 시드 →
 라우팅 → 현황판 → 종합·매출믹스 → 수주관리 → 일정 → 견적서 → 고객사 → 장비 →
