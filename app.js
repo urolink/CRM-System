@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012f';
+const APP_VERSION = '20261012g';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -6590,14 +6590,26 @@ function crBackfillRun(dry) {
     }
     if (r.ctSynced) return;
     st.recs++;
-    const party = r.prospectId ? prospectById(r.prospectId) : (r.custId ? custById(r.custId) : null);
-    if (!party) return;
-    let n;
-    if (dry) {
-      const mainK = ctPhoneKey(party.phone), have = new Set((party.contacts || []).map(c => ctPhoneKey(c.phone)).filter(Boolean));
-      n = 0; cps.forEach(c => { const k = ctPhoneKey(c.phone); if (c.noDirect || !k || k === mainK || have.has(k)) return; have.add(k); n++; });
-    } else { n = syncVisitContacts(r.custId, r.prospectId, cps, [], r.date); r.ctSynced = true; }
-    if (n) { st.ct += n; st.parties[(r.prospectId ? 'p:' : 'c:') + (r.prospectId || r.custId)] = 1; }
+    /* 반영할 병원: 기록에 연결된 병원 + 이름이 같은 고객사·타겟병원(연결이 끊겼거나, 같은 병원이 양쪽에 있는 경우) */
+    const nm = String(r.prospectId ? (r.prospectName || '') : (r.custName || '')).replace(/\s+/g, '');
+    const targets = [];
+    const addT = (kind, p) => { if (p && !targets.some(t => t.p === p)) targets.push({ kind: kind, p: p }); };
+    if (r.prospectId) addT('p', prospectById(r.prospectId)); else if (r.custId) addT('c', custById(r.custId));
+    const lbl = String((targets[0] && targets[0].p.name) || nm).replace(/\s+/g, '');
+    if (lbl) {
+      (DB.customers || []).forEach(c => { if (String(c.name).replace(/\s+/g, '') === lbl) addT('c', c); });
+      (DB.prospects || []).forEach(p => { if (String(p.name).replace(/\s+/g, '') === lbl) addT('p', p); });
+    }
+    if (!targets.length) return;
+    targets.forEach(t => {
+      let n;
+      if (dry) {
+        const mainK = ctPhoneKey(t.p.phone), have = new Set((t.p.contacts || []).map(c => ctPhoneKey(c.phone)).filter(Boolean));
+        n = 0; cps.forEach(c => { const k = ctPhoneKey(c.phone); if (c.noDirect || !k || k === mainK || have.has(k)) return; have.add(k); n++; });
+      } else { n = syncVisitContacts(t.kind === 'c' ? t.p.id : '', t.kind === 'p' ? t.p.id : '', cps, [], r.date); }
+      if (n) { st.ct += n; st.parties[t.kind + ':' + t.p.id] = 1; }
+    });
+    if (!dry) r.ctSynced = true;
   });
   st.partyN = Object.keys(st.parties).length;
   return st;
