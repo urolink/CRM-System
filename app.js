@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012j';
+const APP_VERSION = '20261012k';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4583,7 +4583,7 @@ function syncVisitContacts(custId, prospectId, persons, prevPersons, dateStr) {
     if (c.noDirect || !k || k === mainK || have.has(k) || was.has(k)) return;
     have.add(k);
     adds.push({ role: c.role, name: c.name, phone: c.phone,
-      memo: (c.memo ? c.memo + ' · ' : '') + fmtDate(dateStr) + ' 방문 결과에서 추가' });
+      memo: c.memo || '' });
   });
   if (!adds.length) return 0;
   party.contacts = (party.contacts || []).concat(adds);
@@ -4873,15 +4873,12 @@ function renderCdBody() {
         <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">홈페이지</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${c.website
           ? `<a href="${esc(normalizeUrl(c.website))}" target="_blank" rel="noopener noreferrer">${esc(c.website)}</a>` : '-'}</div></div>
+      <div class="col-12" style="display:flex;border-bottom:1px solid #f3f4f6">
+        <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">소통 담당자</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0">${ctInfoHtml(c.contacts)}</div></div>
       <div class="col-12" style="display:flex">
         <div style="width:100px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(c.memo || '-')}</div></div></div>`
-      + ((c.contacts || []).length ? `<div class="wt-st mt-3"><i class="bi bi-people me-1"></i>연락처 ${c.contacts.length}명</div>
-        <div class="ct-list">${c.contacts.map(x => `<div class="ct-item">
-          <span class="ct-role">${esc(x.role || '기타')}</span>
-          <b style="min-width:70px">${esc(x.name || '-')}</b>
-          <span style="color:#334155">${esc(x.phone || '')}</span>
-          <span style="color:#94a3b8;margin-left:auto">${esc(x.memo || '')}</span></div>`).join('')}</div>` : '')
       + (c.updatedAt ? `<div style="font-size:11px;color:#94a3b8;margin-top:10px;text-align:right">최종 수정 ${fmtDate(c.updatedAt)}${c.updatedBy ? ' · ' + esc(c.updatedBy) : ''}</div>` : '');
   } else if (CD_TAB === 'deals') {
     const ds = DB.deals.filter(d => d.custId === id).sort((a, b) => String(b.expectedDate).localeCompare(String(a.expectedDate)));
@@ -5004,15 +5001,12 @@ function openProspectDetail(id) {
         <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">홈페이지</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0;word-break:break-word">${p.website
           ? `<a href="${esc(normalizeUrl(p.website))}" target="_blank" rel="noopener noreferrer">${esc(p.website)}</a>` : '-'}</div></div>
+      <div class="col-12" style="display:flex;border-bottom:1px solid #f3f4f6">
+        <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">소통 담당자</div>
+        <div style="flex:1;padding:10px 12px;font-size:13px;min-width:0">${ctInfoHtml(p.contacts)}</div></div>
       <div class="col-12" style="display:flex">
         <div style="width:110px;flex-shrink:0;background:#fafbfc;padding:10px 12px;font-size:12px;font-weight:600;color:#64748b">메모</div>
         <div style="flex:1;padding:10px 12px;font-size:13px;white-space:pre-wrap">${esc(p.memo || '-')}</div></div></div>`
-    + ((p.contacts || []).length ? `<div class="wt-st mt-3"><i class="bi bi-people me-1"></i>연락처 ${p.contacts.length}명</div>
-      <div class="ct-list">${p.contacts.map(x => `<div class="ct-item">
-        <span class="ct-role">${esc(x.role || '기타')}</span>
-        <b style="min-width:70px">${esc(x.name || '-')}</b>
-        <span style="color:#334155">${esc(x.phone || '')}</span>
-        <span style="color:#94a3b8;margin-left:auto">${esc(x.memo || '')}</span></div>`).join('')}</div>` : '')
     + (p.updatedAt ? `<div style="font-size:11px;color:#94a3b8;margin-top:10px;text-align:right">최종 수정 ${fmtDate(p.updatedAt)}${p.updatedBy ? ' · ' + esc(p.updatedBy) : ''}</div>` : '');
   new bootstrap.Modal($('prospectDetailModal')).show();
 }
@@ -6592,6 +6586,18 @@ function prevVisitContacts(sch) {
   (DB.schedules || []).forEach(x => { if (x.result) cand(x); });
   return best ? { date: best.date, list: best.list.map(p => ({ role: p.role || '', name: p.name, phone: p.phone, memo: p.memo || '' })) } : null;
 }
+/* 연락처 줄 표시: 역할·이름·번호를 한 줄씩. 예전 자동 메모('○○ 방문 결과에서 추가')는 보여주지 않는다 */
+const CT_AUTO_MEMO = /(^| · )\d{4}\.\d{2}\.\d{2} 방문 결과에서 추가$/;
+function ctInfoHtml(list) {
+  list = (list || []).filter(x => x && (trimv(x.name) || trimv(x.phone)));
+  if (!list.length) return '-';
+  return list.map(x => {
+    const memo = String(x.memo || '').replace(CT_AUTO_MEMO, '').trim();
+    return '<div>' + (x.role ? '<span class="ct-role" style="margin-right:6px">' + esc(x.role) + '</span>' : '')
+      + '<b>' + esc(x.name || '-') + '</b> <span style="color:#334155;margin-left:6px">' + esc(x.phone || '') + '</span>'
+      + (memo ? ' <span style="color:#94a3b8;margin-left:6px">' + esc(memo) + '</span>' : '') + '</div>';
+  }).join('');
+}
 function crBackfillRun(dry) {
   const st = { ct: 0, fill: 0, recs: 0, legacy: 0, pend: 0, marked: 0, parties: {} };
   (DB.schedules || []).forEach(s => {                       // 앞으로 예정된(결과 없는) 일정에 지난 방문의 담당자 미리 채우기
@@ -6726,7 +6732,12 @@ function startApp() {
 function crBackfillAuto() {
   try {
     if (!isAdmin() || !DB) return;
+    let cleaned = 0;
+    (DB.customers || []).concat(DB.prospects || []).forEach(p => (p.contacts || []).forEach(x => {
+      if (x && CT_AUTO_MEMO.test(String(x.memo || ''))) { x.memo = String(x.memo).replace(CT_AUTO_MEMO, '').trim(); cleaned++; }
+    }));
     const r = crBackfillRun(false);                         // 처리한 기록엔 ctBf 표시를 남겨 다시 처리하지 않는다
+    r.marked += cleaned;
     if (!r.ct && !r.fill && !r.pend && !r.marked) return;
     save(true);
     if (r.ct || r.pend) toast('지난 기록의 담당자 연락처를 반영했습니다 (연락처 ' + r.ct + '명, 예정 일정 ' + r.pend + '건)');
