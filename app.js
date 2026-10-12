@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012c';
+const APP_VERSION = '20261012d';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -4467,10 +4467,9 @@ function readContacts(boxId) {
       memo: trimv(r.querySelector('.ct-memo').value)
     };
     if (visit) {
-      /* 방문 결과 칸 전용 — 직통번호 없음 선언(+사유), 번호 모양 의심 표시(관리자 점검용·화면엔 안 보임) */
+      /* 방문 결과 칸 전용 — 직통번호 없음 선언(+사유) */
       const chk = r.querySelector('.ct-nd-chk');
       if (chk && chk.checked) { c.noDirect = true; c.ndReason = r.querySelector('.ct-nd-reason').value; }
-      else if (phoneDoubtful(c.phone)) c.phoneDoubt = true;
     }
     return c;
   }).filter(c => c.name || c.phone);
@@ -4489,13 +4488,6 @@ const ND_REASONS = [
 ];
 const ndLabel = v => (ND_REASONS.find(r => r.v === v) || { l: '사유 없음' }).l;
 const ndOk = v => !!(ND_REASONS.find(r => r.v === v) || {}).ok;
-/* 번호 모양이 의심스러운지 — 막지는 않고 기록만 한다(우연히 진짜 번호일 수 있어서).
-   관리자 '연락처 점검'에서만 쓰인다. 뒤 8자리가 전부 같은 숫자거나 12345678 류인 경우. */
-function phoneDoubtful(phone) {
-  const t = ctPhoneKey(phone).slice(-8);
-  if (t.length < 8) return false;
-  return /^(\d)\1{7}$/.test(t) || t === '12345678' || t === '87654321' || t === '23456789';
-}
 /* 연락처 행 아래의 '직통번호 없음' 선언 칸 — 체크하면 번호는 없어도 되지만 사유를 골라야 한다 */
 function ctNdHtml(c) {
   const on = !!c.noDirect;
@@ -4539,7 +4531,7 @@ function contactPersonsText(l, withPhone) {
 }
 /* 저장 전 검사 — 문제가 있으면 안내 문구를, 괜찮으면 '' 를 돌려준다.
    막는 건 "정보가 아예 없을 때"뿐이다. 대표번호로만 소통하는 병원도 정상이므로, 대표번호를 적으면
-   '직통번호 없음'을 선언(+사유)하도록 안내한다. 이상해 보이는 번호는 막지 않고 기록만 한다.
+   '직통번호 없음'을 선언(+사유)하도록 안내한다. 이상해 보이는 번호도 막지 않는다(우연히 진짜일 수 있어서).
    mainPhones: 이 병원에 등록된 대표번호(숫자만) 목록. */
 function validateVisitContacts(boxId, mainPhones) {
   const rows = readContacts(boxId);
@@ -4554,7 +4546,7 @@ function validateVisitContacts(boxId, mainPhones) {
     }
     if (!r.phone) return r.name + ' 님의 연락처를 입력해주세요.' + NL
       + '직통번호를 모르면 "직통번호 없음(대표번호로 연락)"에 체크하고 사유를 골라주세요.';
-    /* 자릿수만 본다(내선 제외). 번호가 진짜인지·가짜 패턴인지는 막지 않고 관리자 점검 대상으로만 기록한다. */
+    /* 자릿수만 본다(내선 제외). 번호가 진짜인지는 검사하지 않는다. */
     const d = ctPhoneKey(r.phone);
     if (d.length < 8 || d.length > 12) {
       return r.name + ' 님의 연락처 자릿수가 맞지 않습니다.' + NL + '(예: 010-1234-5678, 02-123-4567)';
@@ -6431,10 +6423,13 @@ $('prospectModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD
 /* ══════════════════════════════════════════════════════════════
    연락처 점검 (관리자 전용)
    방문일지에 적힌 '소통 담당자 연락처'를 모아, 관리자가 "직통으로 소통하세요?" 하고 물어볼 만한
-   곳을 추려 보여준다. 판정이 아니라 확인 후보다 — 병원이 대표번호 연락을 원하는 경우도 정상이다.
+   곳을 두 가지로 추려 보여준다. 판정이 아니라 확인 후보다 — 병원이 대표번호 연락을 원하는 경우도 정상이다.
+     A. 같은 사람을 3번 이상 만났는데 직통번호가 한 번도 없음
+     E. 여러 병원에 같은 번호이거나, 다른 병원의 대표번호와 같은 번호
+   (동료와 비교하는 항목은 뺐다 — 담당 병원이 나뉘어 있어 다른 사람이 알기 어렵다)
    ⚠ 영업담당자에게는 어떤 알림·표시도 하지 않는다.
      · 입력한 번호와 선택한 사유는 방문일지 데이터라 누구나 볼 수 있다(원래 그렇다).
-     · 의심 목록·통계는 관리자 화면을 열 때만 계산해 그린다(저장하지 않는다).
+     · 점검 목록은 관리자 화면을 열 때만 계산해 그린다(저장하지 않는다).
      · '정상으로 확인' 표시는 관리자만 읽을 수 있는 ul_contact_reviews 테이블(migration_v7.sql)에 둔다.
    ══════════════════════════════════════════════════════════════ */
 const crPk = p => trimv(p && p.name).replace(/\s+/g, '');
@@ -6452,31 +6447,21 @@ function crPartyOf(l) {
 }
 let CR_ITEMS = [];
 function crBuild() {
-  const items = [], repStat = {}, parties = {}, numUse = {};
-  const stat = r => repStat[r] || (repStat[r] = { logs: 0, noCt: 0, rows: 0, direct: 0, nd: 0, ndOk: 0, doubt: 0 });
+  const items = [], parties = {}, numUse = {};
   (DB.logs || []).forEach(l => {
     const P = crPartyOf(l); if (!P) return;
     const rep = trimv(l.rep) || '(담당자 미지정)';
-    const S = stat(rep); S.logs++;
     const ps = (l.contactPersons || []).filter(p => crPk(p));
-    if (!ps.length) { S.noCt++; return; }
+    if (!ps.length) return;
     (parties[P.key] = parties[P.key] || { P: P, visits: [] }).visits.push({ log: l, rep: rep, ps: ps });
-    ps.forEach(p => {
-      S.rows++;
-      if (p.noDirect) { S.nd++; if (ndOk(p.ndReason)) S.ndOk++; }
-      else if (isDirectRow(p, P.main)) S.direct++;
-      if (p.phoneDoubt) S.doubt++;
-    });
   });
 
   Object.keys(parties).forEach(hk => {
     const H = parties[hk], P = H.P, mainK = P.main;
-    /* 병원 안에서 '이 사람의 직통번호가 이미 알려져 있나' — 영업담당이 적은 것과 고객사 연락처 명단 둘 다 */
-    const directBy = {}, masterDirect = {};
-    H.visits.forEach(v => v.ps.forEach(p => {
-      if (isDirectRow(p, mainK)) (directBy[crPk(p)] = directBy[crPk(p)] || []).push({ rep: v.rep, phone: p.phone });
-    }));
-    (P.contacts || []).forEach(x => { const k = ctPhoneKey(x.phone); if (k && k !== mainK && crPk(x)) masterDirect[crPk(x)] = true; });
+    /* 병원 안에서 '이 사람의 직통번호가 이미 알려져 있나' — 방문일지에 적힌 것과 고객사 연락처 명단 둘 다 */
+    const known = {};
+    H.visits.forEach(v => v.ps.forEach(p => { if (isDirectRow(p, mainK)) known[crPk(p)] = true; }));
+    (P.contacts || []).forEach(x => { const k = ctPhoneKey(x.phone); if (k && k !== mainK && crPk(x)) known[crPk(x)] = true; });
 
     /* A. 같은 사람을 3번 이상 만났는데 직통번호가 한 번도 없음 */
     const grp = {};
@@ -6489,57 +6474,25 @@ function crBuild() {
     }));
     Object.keys(grp).forEach(gk => {
       const g = grp[gk], n = Object.keys(g.logs).length;
-      if (n < 3 || directBy[g.pk] || masterDirect[g.pk]) return;
+      if (n < 3 || known[g.pk]) return;
       const rs = Object.keys(g.reasons);
       items.push({ kind: 'A', key: 'A|' + hk + '|' + g.pk + '|' + g.rep, low: rs.every(ndOk), label: P.name + ' · ' + g.name,
         cells: [esc(P.name), esc(g.rep), esc(g.name) + (g.role ? ' <span class="cr-tag">' + esc(g.role) + '</span>' : ''), n + '회',
           rs.map(r => esc(r === 'none' || r === 'x' ? '사유 없음' : ndLabel(r))).join(', '), esc(fmtDate(g.last))] });
     });
 
-    /* B. 같은 병원에서 동료는 직통을 적었는데, 이 담당은 2번 이상 방문하고도 한 번도 안 적음 */
-    const reps = {};
-    H.visits.forEach(v => {
-      const o = reps[v.rep] = reps[v.rep] || { logs: {}, direct: false };
-      o.logs[v.log.id] = 1;
-      if (v.ps.some(p => isDirectRow(p, mainK))) o.direct = true;
-    });
-    Object.keys(reps).forEach(R => {
-      const o = reps[R], n = Object.keys(o.logs).length, others = {};
-      H.visits.forEach(v => { if (v.rep !== R && v.ps.some(p => isDirectRow(p, mainK))) others[v.rep] = 1; });
-      if (n >= 2 && !o.direct && Object.keys(others).length) {
-        items.push({ kind: 'B', key: 'B|' + hk + '|' + R, low: false, label: P.name + ' · ' + R,
-          cells: [esc(P.name), esc(R), n + '회', esc(Object.keys(others).join(', '))] });
-      }
-    });
-
-    /* C. '직통번호 없음'이라 했는데 같은 병원·같은 이름의 직통번호를 다른 담당이 적음 */
+    /* E 를 위한 번호 사용처 집계 */
     H.visits.forEach(v => v.ps.forEach(p => {
-      if (!p.noDirect) return;
-      const other = (directBy[crPk(p)] || []).filter(d => d.rep !== v.rep);
-      const key = 'C|' + hk + '|' + crPk(p) + '|' + v.rep;
-      if (!other.length || items.some(it => it.key === key)) return;
-      items.push({ kind: 'C', key: key, low: false, label: P.name + ' · ' + p.name,
-        cells: [esc(P.name), esc(v.rep), esc(p.name), esc(ndLabel(p.ndReason)), other.map(d => esc(d.rep) + ' (' + esc(d.phone) + ')').join(', ')] });
-    }));
-
-    /* D. 번호 모양이 의심스러움 + E 를 위한 번호 사용처 집계 */
-    H.visits.forEach(v => v.ps.forEach(p => {
-      if (p.phoneDoubt) {
-        items.push({ kind: 'D', key: 'D|' + v.log.id + '|' + crPk(p), low: false, label: P.name + ' · ' + p.name,
-          cells: [esc(P.name), esc(v.rep), esc(p.name), esc(p.phone), esc(fmtDate(v.log.date))] });
-      }
-      if (isDirectRow(p, mainK)) {
-        const k = ctPhoneKey(p.phone);
-        if (k.length >= 8) {
-          const u = numUse[k] = numUse[k] || {};
-          const h = u[hk] = u[hk] || { name: P.name, reps: {} };
-          h.reps[v.rep] = 1;
-        }
-      }
+      if (!isDirectRow(p, mainK)) return;
+      const k = ctPhoneKey(p.phone);
+      if (k.length < 8) return;
+      const u = numUse[k] = numUse[k] || {};
+      const h = u[hk] = u[hk] || { name: P.name, reps: {} };
+      h.reps[v.rep] = 1;
     }));
   });
 
-  /* E. 여러 병원에서 같은 번호 / 다른 병원의 대표번호와 같은 번호 */
+  /* E. 여러 병원에 같은 번호 / 다른 병원의 대표번호와 같은 번호 */
   const mainOwner = {};
   (DB.customers || []).forEach(c => { const k = ctPhoneKey(c.phone); if (k.length >= 8) (mainOwner[k] = mainOwner[k] || []).push({ key: 'c:' + c.id, name: c.name }); });
   (DB.prospects || []).forEach(p => { const k = ctPhoneKey(p.phone); if (k.length >= 8) (mainOwner[k] = mainOwner[k] || []).push({ key: 'p:' + p.id, name: p.name }); });
@@ -6551,21 +6504,12 @@ function crBuild() {
       cells: [esc(k), hs.map(h => esc(numUse[k][h].name) + ' (' + esc(Object.keys(numUse[k][h].reps).join(', ')) + ')').join('<br>'),
         otherMain.length ? otherMain.map(o => esc(o.name)).join(', ') : '-'] });
   });
-  return { items: items, repStat: repStat };
+  return { items: items };
 }
 const CR_KINDS = {
   A: { t: '같은 사람을 3번 이상 만났는데 직통번호가 없는 경우',
        d: '여러 번 만난 분인데 대표번호 외의 연락처가 한 번도 기록되지 않았습니다. 병원이 대표번호 연락을 원하는 경우일 수 있어, 그 사유를 고른 건은 흐리게 표시합니다.',
        h: ['병원', '담당 영업', '만난 사람', '방문', '선택한 사유', '마지막 방문'] },
-  B: { t: '동료는 직통번호를 적었는데 이 담당만 없는 병원',
-       d: '같은 병원에서 다른 영업담당은 직통번호를 적었는데, 이 담당은 2번 이상 방문하고도 한 번도 적지 않았습니다. 만난 사람이 달랐을 수도 있습니다.',
-       h: ['병원', '담당 영업', '이 담당의 방문', '직통번호를 적은 다른 담당'] },
-  C: { t: "'직통번호 없음'이라 했는데 다른 곳에서 직통번호가 확인된 경우",
-       d: '같은 병원·같은 이름 담당자의 직통번호를 다른 영업담당이 기록했습니다. 서로 다른 사람일 수도 있으니 확인이 필요합니다.',
-       h: ['병원', '담당 영업', '만난 사람', '선택한 사유', '직통번호를 적은 다른 담당'] },
-  D: { t: '번호 모양이 의심스러운 경우',
-       d: '0000, 1111, 12345678처럼 보이는 번호입니다. 우연히 진짜 번호일 수도 있습니다.',
-       h: ['병원', '담당 영업', '만난 사람', '번호', '일자'] },
   E: { t: '여러 병원에 같은 번호이거나 다른 병원의 대표번호와 같은 경우',
        d: '영업담당 본인 번호나 공용 번호를 돌려 적었을 수 있습니다.',
        h: ['번호', '쓰인 병원 (입력한 담당)', '이 번호가 대표번호인 다른 병원'] }
@@ -6577,19 +6521,6 @@ function renderContactReview() {
   const reviewed = {};
   (DB.contactReviews || []).forEach(r => { reviewed[r.key] = r; });
   CR_ITEMS = R.items.filter(it => !reviewed[it.key]);
-
-  const reps = Object.keys(R.repStat).sort();
-  const sumRows = reps.map(r => {
-    const s = R.repStat[r];
-    const rate = s.rows ? Math.round(s.direct / s.rows * 100) : null;
-    const ndRate = s.rows ? Math.round(s.nd / s.rows * 100) : 0;
-    const warn = s.rows >= 5 && ndRate >= 50;
-    return '<tr><td>' + esc(r) + '</td><td>' + s.logs + '</td><td>' + s.noCt + '</td><td>' + s.rows + '</td>'
-      + '<td>' + s.direct + (rate == null ? '' : ' (' + rate + '%)') + '</td>'
-      + '<td' + (warn ? ' style="color:#dc2626;font-weight:800"' : '') + '>' + s.nd + (s.rows ? ' (' + ndRate + '%)' : '')
-      + (s.nd ? ' <span style="color:#94a3b8;font-size:11px;font-weight:500">병원 사정 ' + s.ndOk + ' · 그 외 ' + (s.nd - s.ndOk) + '</span>' : '') + '</td>'
-      + '<td>' + s.doubt + '</td></tr>';
-  }).join('');
 
   const sec = k => {
     const K = CR_KINDS[k];
@@ -6612,7 +6543,7 @@ function renderContactReview() {
   const doneHtml = done.length
     ? '<details class="cr-sec"><summary class="wt-st" style="cursor:pointer">확인 완료 ' + done.length + '건</summary>'
       + '<div class="card mt-2"><div class="card-body p-0"><table class="table mb-0"><thead><tr><th>구분</th><th>대상</th><th>메모</th><th>확인자</th><th>일자</th><th></th></tr></thead><tbody>'
-      + done.map(r => '<tr><td>' + esc((CR_KINDS[r.kind] || {}).t || r.kind) + '</td><td>' + esc(r.label || '') + '</td><td>' + esc(r.note || '-')
+      + done.map(r => '<tr><td>' + esc((CR_KINDS[r.kind] || {}).t || '이전 항목') + '</td><td>' + esc(r.label || '') + '</td><td>' + esc(r.note || '-')
         + '</td><td>' + esc(r.by || '') + '</td><td>' + esc(fmtDate(String(r.at).slice(0, 10)))
         + '</td><td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="crUndo(&#39;' + jsq(r.id) + '&#39;)">되돌리기</button></td></tr>').join('')
       + '</tbody></table></div></div></details>'
@@ -6621,13 +6552,7 @@ function renderContactReview() {
   box.innerHTML = '<div class="cr-note"><b>관리자에게만 보이는 화면입니다.</b> 영업담당자에게는 이 목록도, 확인 표시도 보이지 않습니다.<br>'
     + '여기 있는 건 "잘못"이 아니라 <b>한 번 물어볼 만한 곳</b>입니다. 병원이 대표번호 연락을 원하는 경우도 정상이에요. '
     + '담당자에게 "항상 직통으로 소통하세요?" 하고 물어보거나 병원에 확인한 뒤, 문제가 없으면 <b>[정상으로 확인]</b>을 누르면 이 목록에서 빠지고 다시 뜨지 않습니다.</div>'
-    + '<div class="cr-sec"><div class="wt-st"><span>담당자별 요약</span></div>'
-    + (reps.length
-      ? '<div class="card"><div class="card-body p-0"><table class="table mb-0"><thead><tr><th>담당 영업</th><th>방문일지</th><th>연락처 미기록</th>'
-        + '<th>소통 담당자 입력</th><th>직통번호 확보</th><th>직통번호 없음 선언</th><th>번호 의심</th></tr></thead><tbody>' + sumRows + '</tbody></table></div></div>'
-        + '<div class="ana-note">"연락처 미기록"은 이 기능이 생기기 전에 작성된 일지입니다. 직통번호 없음 선언이 입력 5건 이상이면서 50% 이상이면 빨갛게 표시합니다.</div>'
-      : '<div class="ct-empty">방문일지가 없습니다</div>') + '</div>'
-    + ['A', 'B', 'C', 'D', 'E'].map(sec).join('') + doneHtml;
+    + ['A', 'E'].map(sec).join('') + doneHtml;
 }
 function crConfirm(i) {
   if (!isAdmin()) return;
