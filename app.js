@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20260805m';
+const APP_VERSION = '20261012a';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -2940,7 +2940,7 @@ function logCustLabel(l) {
 }
 function renderLogs() {
   const q = ($('log-search').value || '').trim().toLowerCase();
-  const rows = DB.logs.filter(l => !q || (logCustLabel(l) + ' ' + l.content + ' ' + (l.rep || '') + ' ' + (l.type || '')).toLowerCase().includes(q))
+  const rows = DB.logs.filter(l => !q || (logCustLabel(l) + ' ' + l.content + ' ' + (l.rep || '') + ' ' + (l.type || '') + ' ' + contactPersonsText(l, true) + ' ' + (l.hospitalContact || '')).toLowerCase().includes(q))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   $('log-tbody').innerHTML = rows.length ? rows.map(l => `<tr>
     <td>${fmtDate(l.date)}</td>
@@ -2973,7 +2973,10 @@ function openLogModal(id, custId, forceProspectId) {
   $('l-next-date').value = l ? (l.nextActionDate || '') : '';
   /* 일정의 '방문 결과' 와 같은 형식 — 병원 현황·구매 결과·고객 반응 */
   $('l-h-director').value = l ? (l.hospitalDirector || '') : '';
-  $('l-h-contact').value = l ? (l.hospitalContact || '') : '';
+  renderContacts(l ? (l.contactPersons || []) : [], 'l-contacts');
+  /* 예전 기록은 '병원 내 담당자' 글만 있고 연락처가 없다 — 참고로 보여주고 연락처를 새로 받는다 */
+  $('l-contacts-legacy').textContent = (l && !(l.contactPersons || []).length && l.hospitalContact)
+    ? '이전에 적은 병원 내 담당자: ' + l.hospitalContact : '';
   $('l-h-doctor-count').value = l && num(l.doctorCount) ? num(l.doctorCount) : '';
   $('l-h-main-procedure').value = l ? (l.mainProcedure || '') : '';
   $('l-h-competitor').value = l ? (l.hospitalCompetitor || '') : '';
@@ -2991,18 +2994,25 @@ function saveLog() {
   const prospectId = $('l-prospect-id').value;
   if (!prospectId && !trimv($('l-cust').value)) return alert('고객사를 입력하거나 선택해주세요.');
   if (!$('l-content').value.trim()) return alert('상담 내용을 입력해주세요.');
+  /* 방문일지에는 소통 담당자 연락처가 필수 — resolveCust 로 고객사를 새로 만들기 전에 검사한다 */
+  const refL = prospectId ? prospectById(prospectId) : findCust($('l-cust').value);
+  const errL = validateVisitContacts('l-contacts', [digitsOnly(refL && refL.phone)]);
+  if (errL) return alert(errL);
   const p = prodByCode($('l-interest').value);
   const prospectName = prospectId ? ((prospectById(prospectId) || {}).name || '') : '';
   /* 고객사가 나중에 삭제돼도, 작성 시점에 찍어둔 이름(custName)이 있으면
      그걸로 계속 보여준다 — 타겟병원의 prospectName 과 같은 방식. */
   const custIdV = prospectId ? '' : resolveCust($('l-cust').value);
+  const contactPersonsL = readContacts('l-contacts');
+  const prevL = $('l-id').value ? DB.logs.find(x => x.id === $('l-id').value) : null;
   const row = { custId: custIdV, prospectId, prospectName, custName: custIdV ? custName(custIdV) : '',
     date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
     nextAction: $('l-next').value.trim(), nextActionDate: $('l-next-date').value,
     /* 일정의 '방문 결과' 와 같은 형식으로 저장 — 영업 활동 보고서(printLogReport)가 그대로 채워진다 */
     grade: L_GRADE || 0,
-    hospitalDirector: trimv($('l-h-director').value), hospitalContact: trimv($('l-h-contact').value),
+    hospitalDirector: trimv($('l-h-director').value), contactPersons: contactPersonsL,
+    hospitalContact: contactPersonsL.length ? contactPersonsText({ contactPersons: contactPersonsL }) : trimv(prevL && prevL.hospitalContact),
     doctorCount: num($('l-h-doctor-count').value), mainProcedure: trimv($('l-h-main-procedure').value),
     hospitalCompetitor: trimv($('l-h-competitor').value),
     purchaseStatus: $('l-purchase-status').value, purchaseAmount: num($('l-purchase-amount').value),
@@ -3618,7 +3628,10 @@ function openSchModal(id, preDate, forceProspectId, forceCustId) {
   $('s-done').checked = s ? !!s.done : false;
   $('s-result').value = s ? (s.result || '') : '';
   $('s-h-director').value = s ? (s.hospitalDirector || '') : '';
-  $('s-h-contact').value = s ? (s.hospitalContact || '') : '';
+  renderContacts(s ? (s.contactPersons || []) : [], 's-contacts');
+  /* 예전 기록은 '병원 내 담당자' 글만 있고 연락처가 없다 — 참고로 보여주고 연락처를 새로 받는다 */
+  $('s-contacts-legacy').textContent = (s && !(s.contactPersons || []).length && s.hospitalContact)
+    ? '이전에 적은 병원 내 담당자: ' + s.hospitalContact : '';
   $('s-h-doctor-count').value = s && num(s.doctorCount) ? num(s.doctorCount) : '';
   $('s-h-main-procedure').value = s ? (s.mainProcedure || '') : '';
   $('s-h-competitor').value = s ? (s.hospitalCompetitor || '') : '';
@@ -3670,6 +3683,14 @@ function saveSch() {
   if (!$('s-title').value.trim()) return alert('방문 목적·내용을 입력해주세요.');
   const result = $('s-result').value.trim();
   const prospectId = $('s-prospect-id').value;
+  /* 결과를 적는 병원 방문이면 소통 담당자 연락처가 필수 — resolveCust 로 고객사를 새로 만들기 전에 검사한다.
+     (내부 일정은 병원 사람을 만난 게 아니므로 제외) */
+  const typedCust = trimv($('s-cust').value);
+  if (result && $('s-type').value !== '내부' && (prospectId || typedCust)) {
+    const refS = prospectId ? prospectById(prospectId) : findCust(typedCust);
+    const errS = validateVisitContacts('s-contacts', [digitsOnly(refS && refS.phone)]);
+    if (errS) return alert(errS);
+  }
   /* 타겟병원 일정은 아직 고객사가 아니므로 customer 를 새로 만들지 않는다 */
   const custId = prospectId ? '' : resolveCust($('s-cust').value);
   const rep = resolveRep($('s-rep').value);
@@ -3682,13 +3703,16 @@ function saveSch() {
   const custNameSnap = custId ? custName(custId) : '';
   /* 결과를 적었으면 완료로 본다 (다녀와서 기록한 것이므로) */
   const done = $('s-done').checked || !!result;
+  const contactPersonsS = readContacts('s-contacts');
+  const prevS = $('s-id').value ? DB.schedules.find(x => x.id === $('s-id').value) : null;
   const row = {
     date: $('s-date').value || today(), time: $('s-time').value, custId, prospectId, prospectName, custName: custNameSnap,
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
     done, result, grade: S_GRADE || 0,
     interest: p ? p.name : '',
     /* 영업 활동 보고서 양식 — 병원 현황 */
-    hospitalDirector: trimv($('s-h-director').value), hospitalContact: trimv($('s-h-contact').value),
+    hospitalDirector: trimv($('s-h-director').value), contactPersons: contactPersonsS,
+    hospitalContact: contactPersonsS.length ? contactPersonsText({ contactPersons: contactPersonsS }) : trimv(prevS && prevS.hospitalContact),
     doctorCount: num($('s-h-doctor-count').value), mainProcedure: trimv($('s-h-main-procedure').value),
     hospitalCompetitor: trimv($('s-h-competitor').value),
     /* 영업 활동 보고서 양식 — 결과 및 담당자 의견 */
@@ -3711,7 +3735,7 @@ function saveSch() {
       custId, prospectId, prospectName, custName: custNameSnap, date: cur.date, type: cur.type === '내부' ? '기타' : cur.type,
       content: result + (S_GRADE ? ' [고객반응: ' + gradeLabel(S_GRADE) + ']' : ''),
       grade: row.grade, visitPurpose: cur.title,
-      hospitalDirector: row.hospitalDirector, hospitalContact: row.hospitalContact,
+      hospitalDirector: row.hospitalDirector, hospitalContact: row.hospitalContact, contactPersons: row.contactPersons,
       doctorCount: row.doctorCount, mainProcedure: row.mainProcedure, hospitalCompetitor: row.hospitalCompetitor,
       purchaseStatus: row.purchaseStatus, purchaseAmount: row.purchaseAmount,
       proposeAmount: row.proposeAmount, nonPurchaseReason: row.nonPurchaseReason,
@@ -4059,7 +4083,8 @@ function logReportHTML(l) {
     + '</tbody></table>'
     + '<div class="rp-sec">2. 병원 현황</div>'
     + '<table class="rp-tbl"><tbody>'
-      + '<tr><th>대표원장</th><td>' + esc(l.hospitalDirector || '-') + '</td><th>병원 내 담당자</th><td>' + esc(l.hospitalContact || '-') + '</td></tr>'
+      + '<tr><th>대표원장</th><td>' + esc(l.hospitalDirector || '-') + '</td><th>병원 내 담당자</th><td>' + esc(contactPersonsText(l, false) || '-') + '</td></tr>'
+      + wideRow('담당자 연락처', contactPersonsText(l, true))
       + '<tr><th>원장 수</th><td>' + esc(num(l.doctorCount) ? num(l.doctorCount) + '명' : '-') + '</td><th>고객 호응도</th><td>' + esc(l.grade ? gradeLabel(l.grade) : '-') + '</td></tr>'
       + wideRow('주력 시술', l.mainProcedure)
       + wideRow('경쟁사 (보유 타사 장비)', l.hospitalCompetitor)
@@ -4375,7 +4400,7 @@ function contactRowHtml(c, boxId) {
     + CT_ROLES.map(r => '<option' + (c.role === r ? ' selected' : '') + '>' + esc(r) + '</option>').join('')
     + '</select>'
     + '<input type="text" class="form-control form-control-sm ct-name" placeholder="이름" value="' + esc(c.name || '') + '">'
-    + '<input type="text" class="form-control form-control-sm ct-phone" placeholder="연락처" value="' + esc(c.phone || '') + '">'
+    + '<input type="text" class="form-control form-control-sm ct-phone" placeholder="' + (VISIT_CT_BOXES.indexOf(boxId) >= 0 ? '직통·휴대전화' : '연락처') + '" value="' + esc(c.phone || '') + '">'
     + '<input type="text" class="form-control form-control-sm ct-memo" placeholder="메모 (선호 시간 등)" value="' + esc(c.memo || '') + '">'
     + '<button class="btn-x" title="삭제" onclick="this.closest(\'.ct-row\').remove();ctEmptyCheck(\'' + boxId + '\')"><i class="bi bi-x-lg"></i></button>'
     + '</div>';
@@ -4386,7 +4411,9 @@ function renderContacts(list, boxId) {
   if (!box) return;
   const arr = (list || []).filter(Boolean);
   box.innerHTML = arr.length ? arr.map(c => contactRowHtml(c, boxId)).join('')
-    : '<div class="ct-empty">등록된 연락처가 없습니다. <b>연락처 추가</b>로 원장·실장 등을 넣어주세요.</div>';
+    : '<div class="ct-empty">' + (VISIT_CT_BOXES.indexOf(boxId) >= 0
+      ? '이번에 실제로 소통한 담당자를 <b>담당자 추가</b>로 1명 이상 넣어주세요 (필수).'
+      : '등록된 연락처가 없습니다. <b>연락처 추가</b>로 원장·실장 등을 넣어주세요.') + '</div>';
 }
 function addContactRow(boxId) {
   boxId = boxId || 'c-contacts';
@@ -4411,6 +4438,38 @@ function readContacts(boxId) {
     phone: trimv(r.querySelector('.ct-phone').value),
     memo: trimv(r.querySelector('.ct-memo').value)
   })).filter(c => c.name || c.phone);
+}
+
+/* ══ 방문 결과의 '소통 담당자 연락처' (일정 s-contacts · 방문일지 l-contacts 공용) ══
+   병원 대표번호가 아니라 실제로 소통한 사람(원장·상담실장 등)의 직통·휴대전화를 남기게 한다.
+   contactPersons: [{ role, name, phone, memo }] 로 일정·방문일지에 저장된다(jsonb 라 SQL 변경 없음). */
+const VISIT_CT_BOXES = ['s-contacts', 'l-contacts'];
+/* 담당자를 한 줄 글로 — withPhone 이면 전화번호까지(보고서·검색·내보내기용).
+   예전 기록(contactPersons 없이 hospitalContact 글만 있는 것)은 그 글을 그대로 보여준다. */
+function contactPersonsText(l, withPhone) {
+  const arr = (l && l.contactPersons) || [];
+  if (!arr.length) return withPhone ? '' : trimv(l && l.hospitalContact);
+  return arr.map(c => (c.name || '') + (c.role ? '(' + c.role + ')' : '') + (withPhone && c.phone ? ' ' + c.phone : '')).join(', ');
+}
+/* 저장 전 검사 — 문제가 있으면 안내 문구를, 괜찮으면 '' 를 돌려준다.
+   mainPhones: 이 병원에 등록된 대표번호(숫자만) 목록 — 같은 번호를 적으면 막는다. */
+function validateVisitContacts(boxId, mainPhones) {
+  const rows = readContacts(boxId);
+  if (!rows.length) return '이번에 실제로 소통한 담당자(원장·상담실장 등)를 1명 이상 입력해주세요.' + NL
+    + '병원 대표번호가 아니라 그분의 직통·휴대전화 번호가 필요합니다.';
+  for (const r of rows) {
+    if (!r.name) return '연락처만 있고 이름이 없는 담당자가 있습니다. 이름을 입력해주세요.';
+    if (!r.phone) return r.name + ' 님의 연락처가 비어 있습니다.' + NL + '병원 대표번호가 아니라 직통·휴대전화 번호를 입력해주세요.';
+    /* '02-123-4567 (내선 12)' 처럼 내선이 붙은 번호는 내선을 빼고 자릿수를 센다 */
+    const d = digitsOnly(r.phone.replace(/(내선|ext\.?|#)\s*\d+.*$/i, ''));
+    if (d.length < 9 || d.length > 11 || d.charAt(0) !== '0') {
+      return r.name + ' 님의 연락처 형식이 올바르지 않습니다.' + NL + '(예: 010-1234-5678, 02-123-4567)';
+    }
+    if ((mainPhones || []).some(m => m && m === d)) {
+      return r.name + ' 님의 연락처가 병원 대표번호와 같습니다.' + NL + '실제로 소통하는 담당자의 직통·휴대전화 번호를 입력해주세요.';
+    }
+  }
+  return '';
 }
 
 function openCustModal(id) {
@@ -5322,7 +5381,7 @@ function exportAllExcel() {
     예상수주일: d.expectedDate, 담당: d.rep, 다음액션: d.nextAction, 액션예정일: d.nextActionDate, 메모: d.memo }))), '딜');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.logs.map(l => ({
     일자: l.date, 고객사: logCustLabel(l), 유형: l.type, 내용: l.content,
-    관심제품: l.interest, 다음액션: l.nextAction, 담당: l.rep }))), '방문일지');
+    관심제품: l.interest, 다음액션: l.nextAction, 담당: l.rep, 소통담당자: contactPersonsText(l, true) }))), '방문일지');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DB.quotes.map(q => ({
     견적번호: q.no, 고객사: custName(q.custId), 견적일: q.date, 담당: q.rep,
     품목수: (q.items || []).length, 합계VAT포함: quoteCalc(q.items).total, 상태: q.status }))), '견적서');
@@ -6151,7 +6210,7 @@ document.addEventListener('change', e => { if (e.target && FILTER_IDS.includes(e
    모달에서 실수로 닫거나 새로고침해도 쓰던 내용을 복구할 수 있게 한다.
    모달 안의 id 달린 입력 요소를 통째로 스냅샷 떠서 저장하므로, 필드가
    늘어나도 이 부분을 따로 손댈 필요가 없다. */
-const DRAFT_MODALS = { dealModal: { idField: 'd-id', scope: 'deal' }, logModal: { idField: 'l-id', scope: 'log' }, schModal: { idField: 's-id', scope: 'sch' } };
+const DRAFT_MODALS = { dealModal: { idField: 'd-id', scope: 'deal' }, logModal: { idField: 'l-id', scope: 'log', contactBoxes: ['l-contacts'] }, schModal: { idField: 's-id', scope: 'sch', contactBoxes: ['s-contacts'] } };
 function draftKey(scope, rowId) { return 'ul_draft_' + scope + '_' + (rowId || 'new'); }
 function draftFieldEls(modalId) {
   return [...document.querySelectorAll('#' + modalId + ' [id]')]
@@ -6162,6 +6221,8 @@ function draftSave(modalId) {
   const rowId = ($(cfg.idField) || {}).value || '';
   const data = {};
   draftFieldEls(modalId).forEach(el => { data[el.id] = el.type === 'checkbox' ? el.checked : el.value; });
+  /* 담당자 연락처 행은 id 가 없는 동적 입력이라 따로 담는다 */
+  (cfg.contactBoxes || []).forEach(b => { if ($(b)) data['__ct_' + b] = readContacts(b); });
   try { localStorage.setItem(draftKey(cfg.scope, rowId), JSON.stringify({ t: Date.now(), data })); } catch (e) {}
 }
 /* rowIdOverride 를 안 주면 지금 모달에 열려 있는 항목 기준(기존 동작). 일정 모달에서
@@ -6174,6 +6235,7 @@ function draftClear(modalId, rowIdOverride) {
 }
 function draftApplyData(data) {
   Object.keys(data).forEach(id => {
+    if (id.indexOf('__ct_') === 0) { const box = id.slice(5); if ($(box)) renderContacts(data[id], box); return; }
     const el = $(id); if (!el) return;
     if (el.type === 'checkbox') el.checked = !!data[id]; else el.value = data[id];
   });
