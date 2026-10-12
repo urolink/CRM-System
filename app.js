@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012e';
+const APP_VERSION = '20261012f';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -6555,7 +6555,23 @@ function renderContactReview() {
     + '<div class="cr-note" style="margin-top:10px"><b>지난 기록 연락처 반영</b> — 연락처 자동 추가 기능이 생기기 전에 방문일지·일정 결과에 적어둔 담당자를 고객사·타겟병원 연락처 명단에 한꺼번에 넣습니다. '
     + '이미 있는 번호·대표번호·"직통번호 없음"은 건너뛰고, 일정에만 있고 방문일지에는 빠진 담당자는 방문일지에도 채웁니다. 몇 번 눌러도 중복되지 않습니다. '
     + '<button class="btn btn-sm btn-outline-primary ms-2" onclick="crBackfill()">지난 기록 반영하기</button></div>'
+    + crLegacyHtml()
     + ['A', 'E'].map(sec).join('') + doneHtml;
+}
+/* 연락처 칸 없이 글로만 담당자가 적힌 예전 기록 목록 — 자동 반영이 안 되므로 관리자가 열어 칸에 맞춰 다시 저장한다 */
+function crLegacyHtml() {
+  const rows = [];
+  (DB.logs || []).forEach(l => { if (!(l.contactPersons || []).length && trimv(l.hospitalContact)) rows.push({ kind: 'log', r: l }); });
+  (DB.schedules || []).forEach(s => { if (s.result && s.type !== '내부' && !s.logId && !(s.contactPersons || []).length && trimv(s.hospitalContact)) rows.push({ kind: 'sch', r: s }); });
+  if (!rows.length) return '';
+  rows.sort((a, b) => String(b.r.date).localeCompare(String(a.r.date)));
+  return '<details class="cr-sec"><summary class="wt-st" style="cursor:pointer">글로만 적힌 예전 기록 ' + rows.length + '건 (자동 반영 안 됨)</summary>'
+    + '<div class="ana-note" style="margin:6px 0">열어서 담당자를 역할·이름·번호 칸에 맞춰 적고 저장하면 연락처 명단에 들어갑니다.</div>'
+    + '<div class="card"><div class="card-body p-0"><table class="table table-hover mb-0"><thead><tr><th>구분</th><th>날짜</th><th>병원</th><th>담당 영업</th><th>적혀 있는 글</th><th></th></tr></thead><tbody>'
+    + rows.map(x => { const r = x.r; return '<tr><td>' + (x.kind === 'log' ? '방문일지' : '일정 결과') + '</td><td>' + esc(fmtDate(r.date)) + '</td><td>' + esc(logCustLabel(r))
+      + '</td><td>' + esc(r.rep || '-') + '</td><td>' + esc(r.hospitalContact) + '</td><td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="'
+      + (x.kind === 'log' ? 'openLogModal' : 'openSchModal') + '(&#39;' + jsq(r.id) + '&#39;)">열기</button></td></tr>'; }).join('')
+    + '</tbody></table></div></div></details>';
 }
 /* 지난 일정·방문일지의 담당자를 고객사/타겟병원 연락처에 반영(관리자 1회성, 여러 번 눌러도 안전).
    dry=true 면 저장 없이 건수만 센다. 날짜순으로 처리해 메모의 방문일이 가장 이른 날이 되게 한다. */
