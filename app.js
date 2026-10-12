@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012h';
+const APP_VERSION = '20261012i';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -6555,9 +6555,6 @@ function renderContactReview() {
   box.innerHTML = '<div class="cr-note"><b>관리자에게만 보이는 화면입니다.</b> 영업담당자에게는 이 목록도, 확인 표시도 보이지 않습니다.<br>'
     + '여기 있는 건 "잘못"이 아니라 <b>한 번 물어볼 만한 곳</b>입니다. 병원이 대표번호 연락을 원하는 경우도 정상이에요. '
     + '담당자에게 "항상 직통으로 소통하세요?" 하고 물어보거나 병원에 확인한 뒤, 문제가 없으면 <b>[정상으로 확인]</b>을 누르면 이 목록에서 빠지고 다시 뜨지 않습니다.</div>'
-    + '<div class="cr-note" style="margin-top:10px"><b>지난 기록 연락처 반영</b> — 연락처 자동 추가 기능이 생기기 전에 방문일지·일정 결과에 적어둔 담당자를 고객사·타겟병원 연락처 명단에 한꺼번에 넣습니다. '
-    + '이미 있는 번호·대표번호·"직통번호 없음"은 건너뛰고, 일정에만 있고 방문일지에는 빠진 담당자는 방문일지에도 채웁니다. 몇 번 눌러도 중복되지 않습니다. '
-    + '<button class="btn btn-sm btn-outline-primary ms-2" onclick="crBackfill()">지난 기록 반영하기</button></div>'
     + crLegacyHtml()
     + ['A', 'E'].map(sec).join('') + doneHtml;
 }
@@ -6718,9 +6715,22 @@ function startApp() {
   refreshSelects();
   refreshCounts();
   restoreFilters();
+  crBackfillAuto();
   const p = location.hash.replace('#', '');
   showPage(PAGES.includes(p) ? p : 'overview');
   checkVersion();
+}
+/* 지난 일정·방문일지의 담당자를 고객사/타겟병원 연락처에 자동 반영하고 예정 일정에 미리 채운다.
+   관리자가 앱을 열 때 한 번 조용히 실행(이미 반영한 기록은 ctSynced 로 건너뛰므로 반복해도 안전). */
+function crBackfillAuto() {
+  try {
+    if (!isAdmin() || !DB) return;
+    const d = crBackfillRun(true);
+    if (!d.ct && !d.fill && !d.pend) return;
+    const r = crBackfillRun(false);
+    save(true);
+    toast('지난 기록의 담당자 연락처를 반영했습니다 (연락처 ' + r.ct + '명)');
+  } catch (e) { console.error(e); }
 }
 
 (async function boot() {
