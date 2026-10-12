@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012b';
+const APP_VERSION = '20261012c';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -94,11 +94,12 @@ let DB = null;
 const CFG = window.UROLINK_CONFIG || {};
 const TABLES = { customers: 'ul_customers', deals: 'ul_deals', logs: 'ul_logs', quotes: 'ul_quotes',
                  equipments: 'ul_equipments', products: 'ul_products', schedules: 'ul_schedules', reps: 'ul_reps',
-                 targets: 'ul_targets', audits: 'ul_audits', prospects: 'ul_prospects' };
+                 targets: 'ul_targets', audits: 'ul_audits', prospects: 'ul_prospects',
+                 contactReviews: 'ul_contact_reviews' };
 const KEY_FIELD = { products: 'code', reps: 'name' };   // 그 외 컬렉션은 'id'
 /* 나중에 추가된 테이블 — migration_v3.sql / migration_v4.sql 을 아직 실행하지 않은 환경도 있다.
    이 테이블이 없다고 해서 앱 전체 로딩이 막히면 안 되므로 선택적으로 취급한다. */
-const OPTIONAL_TABLES = ['targets', 'audits', 'prospects'];
+const OPTIONAL_TABLES = ['targets', 'audits', 'prospects', 'contactReviews'];
 const MISSING_TABLES = new Set();
 const isMissingRelation = m => /relation .* does not exist|could not find the table|schema cache/i.test(String(m || ''));
 const rowKey = (coll, row) => String(row[KEY_FIELD[coll] || 'id'] || '');
@@ -130,7 +131,7 @@ function ensureAdminOrOwner(row, label) {
 }
 function blankDB() {
   return { customers: [], deals: [], logs: [], quotes: [], equipments: [], products: [], schedules: [],
-           reps: [], targets: [], audits: [], prospects: [], meta: { ver: 1, updatedAt: null, sample: false } };
+           reps: [], targets: [], audits: [], prospects: [], contactReviews: [], meta: { ver: 1, updatedAt: null, sample: false } };
 }
 function fixShape() {
   const b = blankDB();
@@ -252,7 +253,9 @@ async function pushDiff(silent) {
       });
       if (MISSING_TABLES.size) {
         console.warn('[pushDiff] 미생성 테이블 — 로컬에만 보관:', [...MISSING_TABLES].join(', '));
-        toast('목표·변경이력은 이 브라우저에만 저장됩니다 (migration_v3.sql 미실행)');
+        toast([...MISSING_TABLES].every(t => t === 'contactReviews')
+          ? '연락처 점검의 확인 표시는 이 브라우저에만 저장됩니다 (migration_v7.sql 미실행)'
+          : '목표·변경이력은 이 브라우저에만 저장됩니다 (migration_v3.sql 미실행)');
         return;
       }
     }
@@ -528,7 +531,7 @@ function seed() {
 }
 
 /* ───────────────────────── 5. 라우팅 ───────────────────────── */
-const PAGES = ['overview','mix','dashboard','analysis','sales','schedule','quotes','prospects','customers','equipments','products','settings'];
+const PAGES = ['overview','mix','dashboard','analysis','sales','schedule','quotes','prospects','customers','equipments','products','settings','contactreview'];
 /* 사이드바 하이라이트 귀속: 장비 페이지는 '고객사·장비' 메뉴에 속함 */
 const NAV_OF = { equipments: 'customers' };
 const RENDER = {
@@ -536,7 +539,8 @@ const RENDER = {
   analysis: () => renderAnalysis(), sales: () => renderSales(),
   schedule: () => renderSchedule(), quotes: () => renderQuotes(), prospects: () => renderProspects(),
   customers: () => renderCustomers(),
-  equipments: () => renderEquip(), products: () => renderProducts(), settings: () => renderSettings()
+  equipments: () => renderEquip(), products: () => renderProducts(), settings: () => renderSettings(),
+  contactreview: () => renderContactReview()
 };
 let CUR_PAGE = 'overview';
 
@@ -547,6 +551,8 @@ function showPage(page, el) {
     page = 'overview';
     toast('사용자 관리는 관리자만 접근할 수 있습니다');
   }
+  /* 연락처 점검은 관리자 전용 — 일반 사용자는 이런 화면이 있다는 것조차 알 수 없게 알림 없이 돌려보낸다 */
+  if (page === 'contactreview' && !isAdmin()) page = 'overview';
   CUR_PAGE = page;
   PAGES.forEach(p => $('page-' + p).classList.toggle('active', p === page));
   const navKey = NAV_OF[page] || page;
@@ -2977,6 +2983,7 @@ function openLogModal(id, custId, forceProspectId) {
   /* 예전 기록은 '병원 내 담당자' 글만 있고 연락처가 없다 — 참고로 보여주고 연락처를 새로 받는다 */
   $('l-contacts-legacy').textContent = (l && !(l.contactPersons || []).length && l.hospitalContact)
     ? '이전에 적은 병원 내 담당자: ' + l.hospitalContact : '';
+  renderContactPicks('l');
   $('l-h-doctor-count').value = l && num(l.doctorCount) ? num(l.doctorCount) : '';
   $('l-h-main-procedure').value = l ? (l.mainProcedure || '') : '';
   $('l-h-competitor').value = l ? (l.hospitalCompetitor || '') : '';
@@ -3531,6 +3538,7 @@ const findCust = v => {
 let SCI_OPEN = true;
 function toggleSchCust() { SCI_OPEN = !SCI_OPEN; schCustPeek(); }
 function schCustPeek() {
+  renderContactPicks('s');
   const box = $('s-cust-info'), btn = $('s-cust-toggle');
   if (!box) return;
   const c = findCust($('s-cust').value);
@@ -4420,6 +4428,7 @@ function contactRowHtml(c, boxId) {
     + '<input type="text" class="form-control form-control-sm ct-phone" placeholder="' + (VISIT_CT_BOXES.indexOf(boxId) >= 0 ? '직통·휴대전화' : '연락처') + '" value="' + esc(c.phone || '') + '">'
     + '<input type="text" class="form-control form-control-sm ct-memo" placeholder="메모 (선호 시간 등)" value="' + esc(c.memo || '') + '">'
     + '<button class="btn-x" title="삭제" onclick="this.closest(\'.ct-row\').remove();ctEmptyCheck(\'' + boxId + '\')"><i class="bi bi-x-lg"></i></button>'
+    + (VISIT_CT_BOXES.indexOf(boxId) >= 0 ? ctNdHtml(c) : '')
     + '</div>';
 }
 function renderContacts(list, boxId) {
@@ -4449,41 +4458,111 @@ function ctEmptyCheck(boxId) {
 }
 function readContacts(boxId) {
   boxId = boxId || 'c-contacts';
-  return [...$(boxId).querySelectorAll('.ct-row')].map(r => ({
-    role: r.querySelector('.ct-role').value,
-    name: trimv(r.querySelector('.ct-name').value),
-    phone: trimv(r.querySelector('.ct-phone').value),
-    memo: trimv(r.querySelector('.ct-memo').value)
-  })).filter(c => c.name || c.phone);
+  const visit = VISIT_CT_BOXES.indexOf(boxId) >= 0;
+  return [...$(boxId).querySelectorAll('.ct-row')].map(r => {
+    const c = {
+      role: r.querySelector('.ct-role').value,
+      name: trimv(r.querySelector('.ct-name').value),
+      phone: trimv(r.querySelector('.ct-phone').value),
+      memo: trimv(r.querySelector('.ct-memo').value)
+    };
+    if (visit) {
+      /* 방문 결과 칸 전용 — 직통번호 없음 선언(+사유), 번호 모양 의심 표시(관리자 점검용·화면엔 안 보임) */
+      const chk = r.querySelector('.ct-nd-chk');
+      if (chk && chk.checked) { c.noDirect = true; c.ndReason = r.querySelector('.ct-nd-reason').value; }
+      else if (phoneDoubtful(c.phone)) c.phoneDoubt = true;
+    }
+    return c;
+  }).filter(c => c.name || c.phone);
 }
 
 /* ══ 방문 결과의 '소통 담당자 연락처' (일정 s-contacts · 방문일지 l-contacts 공용) ══
    병원 대표번호가 아니라 실제로 소통한 사람(원장·상담실장 등)의 직통·휴대전화를 남기게 한다.
    contactPersons: [{ role, name, phone, memo }] 로 일정·방문일지에 저장된다(jsonb 라 SQL 변경 없음). */
 const VISIT_CT_BOXES = ['s-contacts', 'l-contacts'];
+/* '직통번호 없음' 선언 사유. ok:true 는 병원 사정으로 보는 정당한 사유(점검 목록에서 흐리게 표시) */
+const ND_REASONS = [
+  { v: 'request', l: '병원이 대표번호로 연락해달라고 함', ok: true },
+  { v: 'desk',    l: '접수 데스크로만 연결됨',           ok: true },
+  { v: 'unknown', l: '직통번호를 아직 모름',             ok: false },
+  { v: 'other',   l: '기타',                              ok: false }
+];
+const ndLabel = v => (ND_REASONS.find(r => r.v === v) || { l: '사유 없음' }).l;
+const ndOk = v => !!(ND_REASONS.find(r => r.v === v) || {}).ok;
+/* 번호 모양이 의심스러운지 — 막지는 않고 기록만 한다(우연히 진짜 번호일 수 있어서).
+   관리자 '연락처 점검'에서만 쓰인다. 뒤 8자리가 전부 같은 숫자거나 12345678 류인 경우. */
+function phoneDoubtful(phone) {
+  const t = ctPhoneKey(phone).slice(-8);
+  if (t.length < 8) return false;
+  return /^(\d)\1{7}$/.test(t) || t === '12345678' || t === '87654321' || t === '23456789';
+}
+/* 연락처 행 아래의 '직통번호 없음' 선언 칸 — 체크하면 번호는 없어도 되지만 사유를 골라야 한다 */
+function ctNdHtml(c) {
+  const on = !!c.noDirect;
+  return '<div class="ct-nd"><label><input type="checkbox" class="ct-nd-chk"' + (on ? ' checked' : '') + ' onchange="ctNdToggle(this)"> 직통번호 없음 (대표번호로 연락)</label>'
+    + '<select class="form-select form-select-sm ct-nd-reason" style="' + (on ? '' : 'display:none') + '"><option value="">사유 선택</option>'
+    + ND_REASONS.map(r => '<option value="' + r.v + '"' + (c.ndReason === r.v ? ' selected' : '') + '>' + esc(r.l) + '</option>').join('')
+    + '</select></div>';
+}
+function ctNdToggle(chk) {
+  const sel = chk.closest('.ct-nd').querySelector('.ct-nd-reason');
+  sel.style.display = chk.checked ? '' : 'none';
+  if (!chk.checked) sel.value = '';
+}
+/* 이 병원에 이미 등록된 담당자를 눌러서 추가 — 다시 타이핑할 필요가 없게 한다 */
+let CT_PICKS = { s: [], l: [] };
+function renderContactPicks(prefix) {
+  const box = $(prefix + '-contacts-pick'); if (!box) return;
+  const pidEl = $(prefix + '-prospect-id'), nmEl = $(prefix + '-cust');
+  const party = (pidEl && pidEl.value) ? prospectById(pidEl.value) : findCust(nmEl ? nmEl.value : '');
+  const list = party && party.contacts ? party.contacts.filter(x => trimv(x.name)) : [];
+  CT_PICKS[prefix] = list;
+  box.innerHTML = list.length
+    ? '이 병원에 등록된 담당자 — 눌러서 추가: ' + list.map((x, i) =>
+        '<span class="ct-pick" onclick="pickVisitContact(&#39;' + prefix + '&#39;,' + i + ')"><i class="bi bi-plus-lg"></i>'
+        + esc(x.name) + (x.role ? '(' + esc(x.role) + ')' : '') + (x.phone ? ' · ' + esc(x.phone) : '') + '</span>').join('')
+    : '';
+}
+function pickVisitContact(prefix, i) {
+  const x = (CT_PICKS[prefix] || [])[i]; if (!x) return;
+  const boxId = prefix + '-contacts', rows = readContacts(boxId), k = ctPhoneKey(x.phone);
+  if (rows.some(r => (k && ctPhoneKey(r.phone) === k) || (!k && r.name === x.name))) return;   // 이미 들어 있음
+  renderContacts(rows.concat([{ role: x.role, name: x.name, phone: x.phone || '', memo: '' }]), boxId);
+}
 /* 담당자를 한 줄 글로 — withPhone 이면 전화번호까지(보고서·검색·내보내기용).
    예전 기록(contactPersons 없이 hospitalContact 글만 있는 것)은 그 글을 그대로 보여준다. */
 function contactPersonsText(l, withPhone) {
   const arr = (l && l.contactPersons) || [];
   if (!arr.length) return withPhone ? '' : trimv(l && l.hospitalContact);
-  return arr.map(c => (c.name || '') + (c.role ? '(' + c.role + ')' : '') + (withPhone && c.phone ? ' ' + c.phone : '')).join(', ');
+  return arr.map(c => (c.name || '') + (c.role ? '(' + c.role + ')' : '')
+    + (withPhone ? (c.noDirect && !c.phone ? ' (직통번호 없음)' : c.phone ? ' ' + c.phone : '') : '')).join(', ');
 }
 /* 저장 전 검사 — 문제가 있으면 안내 문구를, 괜찮으면 '' 를 돌려준다.
-   mainPhones: 이 병원에 등록된 대표번호(숫자만) 목록 — 같은 번호를 적으면 막는다. */
+   막는 건 "정보가 아예 없을 때"뿐이다. 대표번호로만 소통하는 병원도 정상이므로, 대표번호를 적으면
+   '직통번호 없음'을 선언(+사유)하도록 안내한다. 이상해 보이는 번호는 막지 않고 기록만 한다.
+   mainPhones: 이 병원에 등록된 대표번호(숫자만) 목록. */
 function validateVisitContacts(boxId, mainPhones) {
   const rows = readContacts(boxId);
-  if (!rows.length) return '이번에 실제로 소통한 담당자(원장·상담실장 등)를 1명 이상 입력해주세요.' + NL
-    + '병원 대표번호가 아니라 그분의 직통·휴대전화 번호가 필요합니다.';
+  if (!rows.length) return '이번에 소통한 담당자(원장·상담실장 등)를 1명 이상 입력해주세요.' + NL
+    + '직통번호를 모르면 담당자를 추가하고 "직통번호 없음(대표번호로 연락)"에 체크한 뒤 사유를 골라주세요.';
   for (const r of rows) {
     if (!r.name) return '연락처만 있고 이름이 없는 담당자가 있습니다. 이름을 입력해주세요.';
-    if (!r.phone) return r.name + ' 님의 연락처가 비어 있습니다.' + NL + '병원 대표번호가 아니라 직통·휴대전화 번호를 입력해주세요.';
-    /* '02-123-4567 (내선 12)' 처럼 내선이 붙은 번호는 내선을 빼고 자릿수를 센다 */
-    const d = digitsOnly(r.phone.replace(/(내선|ext\.?|#)\s*\d+.*$/i, ''));
-    if (d.length < 9 || d.length > 11 || d.charAt(0) !== '0') {
-      return r.name + ' 님의 연락처 형식이 올바르지 않습니다.' + NL + '(예: 010-1234-5678, 02-123-4567)';
+    /* 직통번호 없음을 선언한 사람은 번호가 없어도 되고, 사유만 있으면 된다 */
+    if (r.noDirect) {
+      if (!r.ndReason) return r.name + ' 님의 "직통번호 없음" 사유를 골라주세요.';
+      continue;
+    }
+    if (!r.phone) return r.name + ' 님의 연락처를 입력해주세요.' + NL
+      + '직통번호를 모르면 "직통번호 없음(대표번호로 연락)"에 체크하고 사유를 골라주세요.';
+    /* 자릿수만 본다(내선 제외). 번호가 진짜인지·가짜 패턴인지는 막지 않고 관리자 점검 대상으로만 기록한다. */
+    const d = ctPhoneKey(r.phone);
+    if (d.length < 8 || d.length > 12) {
+      return r.name + ' 님의 연락처 자릿수가 맞지 않습니다.' + NL + '(예: 010-1234-5678, 02-123-4567)';
     }
     if ((mainPhones || []).some(m => m && m === d)) {
-      return r.name + ' 님의 연락처가 병원 대표번호와 같습니다.' + NL + '실제로 소통하는 담당자의 직통·휴대전화 번호를 입력해주세요.';
+      return r.name + ' 님이 적으신 번호는 병원 대표번호입니다.' + NL
+        + '대표번호로만 소통한다면 "직통번호 없음(대표번호로 연락)"에 체크하고 사유를 골라주세요.' + NL
+        + '직통번호를 알고 있다면 그 번호를 적어주세요.';
     }
   }
   return '';
@@ -4499,12 +4578,14 @@ function ctPhoneKey(p) { return digitsOnly(String(p || '').replace(/(내선|ext\
 function syncVisitContacts(custId, prospectId, persons, prevPersons, dateStr) {
   const party = prospectId ? prospectById(prospectId) : (custId ? custById(custId) : null);
   if (!party) return 0;
+  const mainK = ctPhoneKey(party.phone);
   const have = new Set((party.contacts || []).map(x => ctPhoneKey(x.phone)).filter(Boolean));
   const was = new Set((prevPersons || []).map(x => ctPhoneKey(x.phone)).filter(Boolean));
   const adds = [];
   (persons || []).forEach(c => {
     const k = ctPhoneKey(c.phone);
-    if (!k || have.has(k) || was.has(k)) return;
+    /* 직통번호 없음 선언·대표번호는 명단에 넣지 않는다(번호가 없거나 병원 대표번호라서) */
+    if (c.noDirect || !k || k === mainK || have.has(k) || was.has(k)) return;
     have.add(k);
     adds.push({ role: c.role, name: c.name, phone: c.phone,
       memo: (c.memo ? c.memo + ' · ' : '') + fmtDate(dateStr) + ' 방문 결과에서 추가' });
@@ -6347,6 +6428,224 @@ function schQuickAddResume() {
 $('custModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD === 'cust') schQuickAddResume(); });
 $('prospectModal').addEventListener('hidden.bs.modal', () => { if (SCH_QUICK_ADD === 'prospect') schQuickAddResume(); });
 
+/* ══════════════════════════════════════════════════════════════
+   연락처 점검 (관리자 전용)
+   방문일지에 적힌 '소통 담당자 연락처'를 모아, 관리자가 "직통으로 소통하세요?" 하고 물어볼 만한
+   곳을 추려 보여준다. 판정이 아니라 확인 후보다 — 병원이 대표번호 연락을 원하는 경우도 정상이다.
+   ⚠ 영업담당자에게는 어떤 알림·표시도 하지 않는다.
+     · 입력한 번호와 선택한 사유는 방문일지 데이터라 누구나 볼 수 있다(원래 그렇다).
+     · 의심 목록·통계는 관리자 화면을 열 때만 계산해 그린다(저장하지 않는다).
+     · '정상으로 확인' 표시는 관리자만 읽을 수 있는 ul_contact_reviews 테이블(migration_v7.sql)에 둔다.
+   ══════════════════════════════════════════════════════════════ */
+const crPk = p => trimv(p && p.name).replace(/\s+/g, '');
+const isDirectRow = (p, mainK) => { const k = ctPhoneKey(p && p.phone); return !!(p && !p.noDirect && k && k !== mainK); };
+function crPartyOf(l) {
+  if (l.custId) {
+    const c = custById(l.custId);
+    return { key: 'c:' + l.custId, name: logCustLabel(l), main: ctPhoneKey(c && c.phone), contacts: (c && c.contacts) || [] };
+  }
+  if (l.prospectId) {
+    const p = prospectById(l.prospectId);
+    return { key: 'p:' + l.prospectId, name: logCustLabel(l), main: ctPhoneKey(p && p.phone), contacts: (p && p.contacts) || [] };
+  }
+  return null;
+}
+let CR_ITEMS = [];
+function crBuild() {
+  const items = [], repStat = {}, parties = {}, numUse = {};
+  const stat = r => repStat[r] || (repStat[r] = { logs: 0, noCt: 0, rows: 0, direct: 0, nd: 0, ndOk: 0, doubt: 0 });
+  (DB.logs || []).forEach(l => {
+    const P = crPartyOf(l); if (!P) return;
+    const rep = trimv(l.rep) || '(담당자 미지정)';
+    const S = stat(rep); S.logs++;
+    const ps = (l.contactPersons || []).filter(p => crPk(p));
+    if (!ps.length) { S.noCt++; return; }
+    (parties[P.key] = parties[P.key] || { P: P, visits: [] }).visits.push({ log: l, rep: rep, ps: ps });
+    ps.forEach(p => {
+      S.rows++;
+      if (p.noDirect) { S.nd++; if (ndOk(p.ndReason)) S.ndOk++; }
+      else if (isDirectRow(p, P.main)) S.direct++;
+      if (p.phoneDoubt) S.doubt++;
+    });
+  });
+
+  Object.keys(parties).forEach(hk => {
+    const H = parties[hk], P = H.P, mainK = P.main;
+    /* 병원 안에서 '이 사람의 직통번호가 이미 알려져 있나' — 영업담당이 적은 것과 고객사 연락처 명단 둘 다 */
+    const directBy = {}, masterDirect = {};
+    H.visits.forEach(v => v.ps.forEach(p => {
+      if (isDirectRow(p, mainK)) (directBy[crPk(p)] = directBy[crPk(p)] || []).push({ rep: v.rep, phone: p.phone });
+    }));
+    (P.contacts || []).forEach(x => { const k = ctPhoneKey(x.phone); if (k && k !== mainK && crPk(x)) masterDirect[crPk(x)] = true; });
+
+    /* A. 같은 사람을 3번 이상 만났는데 직통번호가 한 번도 없음 */
+    const grp = {};
+    H.visits.forEach(v => v.ps.forEach(p => {
+      const gk = crPk(p) + '|' + v.rep;
+      const g = grp[gk] = grp[gk] || { pk: crPk(p), name: p.name, role: p.role, rep: v.rep, logs: {}, reasons: {}, last: '' };
+      g.logs[v.log.id] = 1;
+      g.reasons[p.noDirect ? (p.ndReason || 'x') : 'none'] = 1;
+      if (String(v.log.date) > g.last) g.last = v.log.date;
+    }));
+    Object.keys(grp).forEach(gk => {
+      const g = grp[gk], n = Object.keys(g.logs).length;
+      if (n < 3 || directBy[g.pk] || masterDirect[g.pk]) return;
+      const rs = Object.keys(g.reasons);
+      items.push({ kind: 'A', key: 'A|' + hk + '|' + g.pk + '|' + g.rep, low: rs.every(ndOk), label: P.name + ' · ' + g.name,
+        cells: [esc(P.name), esc(g.rep), esc(g.name) + (g.role ? ' <span class="cr-tag">' + esc(g.role) + '</span>' : ''), n + '회',
+          rs.map(r => esc(r === 'none' || r === 'x' ? '사유 없음' : ndLabel(r))).join(', '), esc(fmtDate(g.last))] });
+    });
+
+    /* B. 같은 병원에서 동료는 직통을 적었는데, 이 담당은 2번 이상 방문하고도 한 번도 안 적음 */
+    const reps = {};
+    H.visits.forEach(v => {
+      const o = reps[v.rep] = reps[v.rep] || { logs: {}, direct: false };
+      o.logs[v.log.id] = 1;
+      if (v.ps.some(p => isDirectRow(p, mainK))) o.direct = true;
+    });
+    Object.keys(reps).forEach(R => {
+      const o = reps[R], n = Object.keys(o.logs).length, others = {};
+      H.visits.forEach(v => { if (v.rep !== R && v.ps.some(p => isDirectRow(p, mainK))) others[v.rep] = 1; });
+      if (n >= 2 && !o.direct && Object.keys(others).length) {
+        items.push({ kind: 'B', key: 'B|' + hk + '|' + R, low: false, label: P.name + ' · ' + R,
+          cells: [esc(P.name), esc(R), n + '회', esc(Object.keys(others).join(', '))] });
+      }
+    });
+
+    /* C. '직통번호 없음'이라 했는데 같은 병원·같은 이름의 직통번호를 다른 담당이 적음 */
+    H.visits.forEach(v => v.ps.forEach(p => {
+      if (!p.noDirect) return;
+      const other = (directBy[crPk(p)] || []).filter(d => d.rep !== v.rep);
+      const key = 'C|' + hk + '|' + crPk(p) + '|' + v.rep;
+      if (!other.length || items.some(it => it.key === key)) return;
+      items.push({ kind: 'C', key: key, low: false, label: P.name + ' · ' + p.name,
+        cells: [esc(P.name), esc(v.rep), esc(p.name), esc(ndLabel(p.ndReason)), other.map(d => esc(d.rep) + ' (' + esc(d.phone) + ')').join(', ')] });
+    }));
+
+    /* D. 번호 모양이 의심스러움 + E 를 위한 번호 사용처 집계 */
+    H.visits.forEach(v => v.ps.forEach(p => {
+      if (p.phoneDoubt) {
+        items.push({ kind: 'D', key: 'D|' + v.log.id + '|' + crPk(p), low: false, label: P.name + ' · ' + p.name,
+          cells: [esc(P.name), esc(v.rep), esc(p.name), esc(p.phone), esc(fmtDate(v.log.date))] });
+      }
+      if (isDirectRow(p, mainK)) {
+        const k = ctPhoneKey(p.phone);
+        if (k.length >= 8) {
+          const u = numUse[k] = numUse[k] || {};
+          const h = u[hk] = u[hk] || { name: P.name, reps: {} };
+          h.reps[v.rep] = 1;
+        }
+      }
+    }));
+  });
+
+  /* E. 여러 병원에서 같은 번호 / 다른 병원의 대표번호와 같은 번호 */
+  const mainOwner = {};
+  (DB.customers || []).forEach(c => { const k = ctPhoneKey(c.phone); if (k.length >= 8) (mainOwner[k] = mainOwner[k] || []).push({ key: 'c:' + c.id, name: c.name }); });
+  (DB.prospects || []).forEach(p => { const k = ctPhoneKey(p.phone); if (k.length >= 8) (mainOwner[k] = mainOwner[k] || []).push({ key: 'p:' + p.id, name: p.name }); });
+  Object.keys(numUse).forEach(k => {
+    const hs = Object.keys(numUse[k]);
+    const otherMain = (mainOwner[k] || []).filter(o => hs.indexOf(o.key) < 0);
+    if (hs.length < 2 && !otherMain.length) return;
+    items.push({ kind: 'E', key: 'E|' + k, low: false, label: k,
+      cells: [esc(k), hs.map(h => esc(numUse[k][h].name) + ' (' + esc(Object.keys(numUse[k][h].reps).join(', ')) + ')').join('<br>'),
+        otherMain.length ? otherMain.map(o => esc(o.name)).join(', ') : '-'] });
+  });
+  return { items: items, repStat: repStat };
+}
+const CR_KINDS = {
+  A: { t: '같은 사람을 3번 이상 만났는데 직통번호가 없는 경우',
+       d: '여러 번 만난 분인데 대표번호 외의 연락처가 한 번도 기록되지 않았습니다. 병원이 대표번호 연락을 원하는 경우일 수 있어, 그 사유를 고른 건은 흐리게 표시합니다.',
+       h: ['병원', '담당 영업', '만난 사람', '방문', '선택한 사유', '마지막 방문'] },
+  B: { t: '동료는 직통번호를 적었는데 이 담당만 없는 병원',
+       d: '같은 병원에서 다른 영업담당은 직통번호를 적었는데, 이 담당은 2번 이상 방문하고도 한 번도 적지 않았습니다. 만난 사람이 달랐을 수도 있습니다.',
+       h: ['병원', '담당 영업', '이 담당의 방문', '직통번호를 적은 다른 담당'] },
+  C: { t: "'직통번호 없음'이라 했는데 다른 곳에서 직통번호가 확인된 경우",
+       d: '같은 병원·같은 이름 담당자의 직통번호를 다른 영업담당이 기록했습니다. 서로 다른 사람일 수도 있으니 확인이 필요합니다.',
+       h: ['병원', '담당 영업', '만난 사람', '선택한 사유', '직통번호를 적은 다른 담당'] },
+  D: { t: '번호 모양이 의심스러운 경우',
+       d: '0000, 1111, 12345678처럼 보이는 번호입니다. 우연히 진짜 번호일 수도 있습니다.',
+       h: ['병원', '담당 영업', '만난 사람', '번호', '일자'] },
+  E: { t: '여러 병원에 같은 번호이거나 다른 병원의 대표번호와 같은 경우',
+       d: '영업담당 본인 번호나 공용 번호를 돌려 적었을 수 있습니다.',
+       h: ['번호', '쓰인 병원 (입력한 담당)', '이 번호가 대표번호인 다른 병원'] }
+};
+function renderContactReview() {
+  const box = $('cr-body'); if (!box) return;
+  if (!isAdmin()) { box.innerHTML = ''; return; }     /* 관리자가 아니면 아무것도 그리지 않는다 */
+  const R = crBuild();
+  const reviewed = {};
+  (DB.contactReviews || []).forEach(r => { reviewed[r.key] = r; });
+  CR_ITEMS = R.items.filter(it => !reviewed[it.key]);
+
+  const reps = Object.keys(R.repStat).sort();
+  const sumRows = reps.map(r => {
+    const s = R.repStat[r];
+    const rate = s.rows ? Math.round(s.direct / s.rows * 100) : null;
+    const ndRate = s.rows ? Math.round(s.nd / s.rows * 100) : 0;
+    const warn = s.rows >= 5 && ndRate >= 50;
+    return '<tr><td>' + esc(r) + '</td><td>' + s.logs + '</td><td>' + s.noCt + '</td><td>' + s.rows + '</td>'
+      + '<td>' + s.direct + (rate == null ? '' : ' (' + rate + '%)') + '</td>'
+      + '<td' + (warn ? ' style="color:#dc2626;font-weight:800"' : '') + '>' + s.nd + (s.rows ? ' (' + ndRate + '%)' : '')
+      + (s.nd ? ' <span style="color:#94a3b8;font-size:11px;font-weight:500">병원 사정 ' + s.ndOk + ' · 그 외 ' + (s.nd - s.ndOk) + '</span>' : '') + '</td>'
+      + '<td>' + s.doubt + '</td></tr>';
+  }).join('');
+
+  const sec = k => {
+    const K = CR_KINDS[k];
+    const list = CR_ITEMS.map((it, i) => ({ it: it, i: i })).filter(x => x.it.kind === k)
+      .sort((a, b) => (a.it.low ? 1 : 0) - (b.it.low ? 1 : 0));
+    const rows = list.map(x => '<tr' + (x.it.low ? ' class="cr-low"' : '') + '>'
+      + x.it.cells.map(c => '<td>' + c + '</td>').join('')
+      + '<td class="text-end" style="white-space:nowrap">' + (x.it.low ? '<span class="cr-tag">병원 사정</span> ' : '')
+      + '<button class="btn btn-sm btn-outline-secondary" onclick="crConfirm(' + x.i + ')">정상으로 확인</button></td></tr>').join('');
+    return '<div class="cr-sec"><div class="wt-st"><span>' + esc(K.t) + '</span>'
+      + '<span class="cr-cnt' + (list.length ? '' : ' zero') + '">' + list.length + '건</span></div>'
+      + '<div class="ana-note" style="margin:0 0 8px">' + esc(K.d) + '</div>'
+      + (list.length
+        ? '<div class="card"><div class="card-body p-0"><table class="table table-hover mb-0"><thead><tr>'
+          + K.h.map(h => '<th>' + esc(h) + '</th>').join('') + '<th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+        : '<div class="ct-empty">해당 없음</div>') + '</div>';
+  };
+
+  const done = (DB.contactReviews || []).slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const doneHtml = done.length
+    ? '<details class="cr-sec"><summary class="wt-st" style="cursor:pointer">확인 완료 ' + done.length + '건</summary>'
+      + '<div class="card mt-2"><div class="card-body p-0"><table class="table mb-0"><thead><tr><th>구분</th><th>대상</th><th>메모</th><th>확인자</th><th>일자</th><th></th></tr></thead><tbody>'
+      + done.map(r => '<tr><td>' + esc((CR_KINDS[r.kind] || {}).t || r.kind) + '</td><td>' + esc(r.label || '') + '</td><td>' + esc(r.note || '-')
+        + '</td><td>' + esc(r.by || '') + '</td><td>' + esc(fmtDate(String(r.at).slice(0, 10)))
+        + '</td><td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="crUndo(&#39;' + jsq(r.id) + '&#39;)">되돌리기</button></td></tr>').join('')
+      + '</tbody></table></div></div></details>'
+    : '';
+
+  box.innerHTML = '<div class="cr-note"><b>관리자에게만 보이는 화면입니다.</b> 영업담당자에게는 이 목록도, 확인 표시도 보이지 않습니다.<br>'
+    + '여기 있는 건 "잘못"이 아니라 <b>한 번 물어볼 만한 곳</b>입니다. 병원이 대표번호 연락을 원하는 경우도 정상이에요. '
+    + '담당자에게 "항상 직통으로 소통하세요?" 하고 물어보거나 병원에 확인한 뒤, 문제가 없으면 <b>[정상으로 확인]</b>을 누르면 이 목록에서 빠지고 다시 뜨지 않습니다.</div>'
+    + '<div class="cr-sec"><div class="wt-st"><span>담당자별 요약</span></div>'
+    + (reps.length
+      ? '<div class="card"><div class="card-body p-0"><table class="table mb-0"><thead><tr><th>담당 영업</th><th>방문일지</th><th>연락처 미기록</th>'
+        + '<th>소통 담당자 입력</th><th>직통번호 확보</th><th>직통번호 없음 선언</th><th>번호 의심</th></tr></thead><tbody>' + sumRows + '</tbody></table></div></div>'
+        + '<div class="ana-note">"연락처 미기록"은 이 기능이 생기기 전에 작성된 일지입니다. 직통번호 없음 선언이 입력 5건 이상이면서 50% 이상이면 빨갛게 표시합니다.</div>'
+      : '<div class="ct-empty">방문일지가 없습니다</div>') + '</div>'
+    + ['A', 'B', 'C', 'D', 'E'].map(sec).join('') + doneHtml;
+}
+function crConfirm(i) {
+  if (!isAdmin()) return;
+  const it = CR_ITEMS[i]; if (!it) return;
+  const note = prompt('확인 메모 (선택)' + NL + '예: 병원 측에서 대표번호로만 연락해달라고 확인함', '');
+  if (note === null) return;
+  DB.contactReviews = DB.contactReviews || [];
+  DB.contactReviews.push({ id: uid(), key: it.key, kind: it.kind, label: it.label, note: trimv(note), by: curUserName() || '관리자', at: new Date().toISOString() });
+  save(true);
+  renderContactReview();
+}
+function crUndo(id) {
+  if (!isAdmin()) return;
+  DB.contactReviews = (DB.contactReviews || []).filter(r => r.id !== id);
+  save(true);
+  renderContactReview();
+}
+
 /* ───────────────────────── 17. 초기화 ───────────────────────── */
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); }
@@ -6391,6 +6690,9 @@ document.addEventListener('click', e => {
 function startApp() {
   const ns = $('nav-settings');
   if (ns) ns.style.display = isAdmin() ? '' : 'none';   /* 관리자에게만 메뉴 노출 */
+  const ncr = $('nav-contactreview');
+  if (ncr) ncr.style.display = isAdmin() ? '' : 'none';   /* 연락처 점검도 관리자에게만 */
+  if (!isAdmin() && $('cr-body')) $('cr-body').innerHTML = '';   /* 일반 사용자 화면엔 점검 내용을 절대 남기지 않는다 */
   renderAccountBox();
   refreshSelects();
   refreshCounts();
