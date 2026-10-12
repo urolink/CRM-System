@@ -6,7 +6,7 @@
 /* ───────────────────────── 1. 상수 ───────────────────────── */
 const LS_KEY = 'urolink_crm_v1';
 /* 배포 버전 — index.html 의 ?v= 값과 version.json 과 반드시 동일하게 유지 */
-const APP_VERSION = '20261012a';
+const APP_VERSION = '20261012b';
 
 const STAGES = [
   {name:'상담중',    prob:25,  color:'#0ea5e9'},
@@ -3005,6 +3005,8 @@ function saveLog() {
   const custIdV = prospectId ? '' : resolveCust($('l-cust').value);
   const contactPersonsL = readContacts('l-contacts');
   const prevL = $('l-id').value ? DB.logs.find(x => x.id === $('l-id').value) : null;
+  /* 아래 Object.assign 이 덮어쓰기 전의 옛 담당자 목록(이미 명단에 반영했던 것만) */
+  const prevCtL = prevL && prevL.ctSynced ? (prevL.contactPersons || []) : [];
   const row = { custId: custIdV, prospectId, prospectName, custName: custIdV ? custName(custIdV) : '',
     date: $('l-date').value || today(), type: $('l-type').value,
     interest: p ? p.name : '', rep: resolveRep($('l-rep').value), content: $('l-content').value.trim(),
@@ -3021,6 +3023,9 @@ function saveLog() {
   let cur;
   if (id) { cur = DB.logs.find(x => x.id === id); Object.assign(cur, row); }
   else { cur = Object.assign({ id: uid(), createdById: ME && ME.id }, row); DB.logs.push(cur); }
+  /* 방문일지에 적은 담당자를 고객사(타겟병원) 연락처에도 추가 — 위에서 필수 검사를 거쳤다 */
+  const ctAddedL = syncVisitContacts(custIdV, prospectId, contactPersonsL, prevCtL, row.date);
+  cur.ctSynced = true;
   /* 방문일지에 적은 다음 액션·예정일도 일정에 그대로 반영한다(일정 모달의
      '다음 액션을 일정으로 등록'과 같은 동작) — 안 그러면 날짜만 적어놓고
      일정엔 안 뜨는 상태가 된다. 같은 일지를 다시 저장하면 새로 만들지 않고
@@ -3042,6 +3047,7 @@ function saveLog() {
   }
   save();
   draftClear('logModal');
+  if (ctAddedL) toast((prospectId ? '타겟병원' : '고객사') + ' 연락처 ' + ctAddedL + '명 추가');
   bootstrap.Modal.getInstance($('logModal')).hide();
   if (CUR_PAGE === 'sales') renderLogs(); else RENDER[CUR_PAGE]();
 }
@@ -3705,6 +3711,8 @@ function saveSch() {
   const done = $('s-done').checked || !!result;
   const contactPersonsS = readContacts('s-contacts');
   const prevS = $('s-id').value ? DB.schedules.find(x => x.id === $('s-id').value) : null;
+  /* 아래 Object.assign 이 덮어쓰기 전의 옛 담당자 목록(이미 명단에 반영했던 것만) */
+  const prevCtS = prevS && prevS.ctSynced ? (prevS.contactPersons || []) : [];
   const row = {
     date: $('s-date').value || today(), time: $('s-time').value, custId, prospectId, prospectName, custName: custNameSnap,
     type: $('s-type').value, rep, title: $('s-title').value.trim(),
@@ -3749,6 +3757,14 @@ function saveSch() {
       cur.logId = lid;
     }
   }
+  /* 방문 결과의 담당자를 고객사(타겟병원) 연락처에도 추가 — 위에서 필수 검사를 거친 경우만 */
+  let ctAdded = 0;
+  if (result && cur.type !== '내부' && (custId || prospectId)) {
+    ctAdded = syncVisitContacts(custId, prospectId, contactPersonsS, prevCtS, cur.date);
+    cur.ctSynced = true;
+    const lgS = cur.logId && DB.logs.find(l => l.id === cur.logId);
+    if (lgS) lgS.ctSynced = true;
+  }
   /* 다음 액션을 후속 일정으로 예약 — 예정일만 정하고 내용을 안 적는 경우도 있으므로
      '다음 액션' 텍스트가 비어 있어도 날짜만 있으면 등록한다(제목은 방문 목적으로 대신 채움).
      src:'nextAction' 표시를 남겨 일정 목록·달력에서 "(다음액션)" 으로 구분해 보여준다. */
@@ -3766,6 +3782,7 @@ function saveSch() {
   const msgs = [];
   if (result) msgs.push('결과 기록');
   if (result && (custId || prospectId) && $('s-mklog').checked) msgs.push('방문일지 생성');
+  if (ctAdded) msgs.push((prospectId ? '타겟병원' : '고객사') + ' 연락처 ' + ctAdded + '명 추가');
   if ($('s-mksch').checked && row.nextActionDate) msgs.push('후속 일정 등록');
   if (msgs.length) toast(msgs.join(' · ') + ' 완료');
   RENDER[CUR_PAGE]();
@@ -4470,6 +4487,31 @@ function validateVisitContacts(boxId, mainPhones) {
     }
   }
   return '';
+}
+/* 전화번호 비교용 키 — 숫자만 남기되 내선은 뺀다 */
+function ctPhoneKey(p) { return digitsOnly(String(p || '').replace(/(내선|ext\.?|#)\s*\d+.*$/i, '')); }
+/* 방문 결과에 적은 담당자를 고객사(또는 타겟병원) 연락처 명단에도 넣는다 — 영업 담당이 바뀌어도
+   그 병원의 실제 소통 창구가 한곳에 모이도록. 규칙:
+   · 이미 명단에 있는 번호는 건너뛴다(중복 방지)
+   · prevPersons(이 기록을 전에 저장할 때 이미 반영한 담당자)는 건너뛴다 — 명단에서 일부러 지운 사람이
+     같은 기록을 다시 저장할 때 되살아나지 않게. (호출하는 쪽이 ctSynced 가 있을 때만 넘긴다)
+   추가한 인원 수를 돌려준다. */
+function syncVisitContacts(custId, prospectId, persons, prevPersons, dateStr) {
+  const party = prospectId ? prospectById(prospectId) : (custId ? custById(custId) : null);
+  if (!party) return 0;
+  const have = new Set((party.contacts || []).map(x => ctPhoneKey(x.phone)).filter(Boolean));
+  const was = new Set((prevPersons || []).map(x => ctPhoneKey(x.phone)).filter(Boolean));
+  const adds = [];
+  (persons || []).forEach(c => {
+    const k = ctPhoneKey(c.phone);
+    if (!k || have.has(k) || was.has(k)) return;
+    have.add(k);
+    adds.push({ role: c.role, name: c.name, phone: c.phone,
+      memo: (c.memo ? c.memo + ' · ' : '') + fmtDate(dateStr) + ' 방문 결과에서 추가' });
+  });
+  if (!adds.length) return 0;
+  party.contacts = (party.contacts || []).concat(adds);
+  return adds.length;
 }
 
 function openCustModal(id) {
