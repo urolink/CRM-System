@@ -21,6 +21,10 @@ create table if not exists ul_contact_reviews (
 
 alter table ul_contact_reviews enable row level security;
 
+-- 2026-10-30 부터 Supabase 가 새 테이블에 Data API 권한을 자동으로 주지 않는다 → 직접 부여(접근 제한은 아래 RLS 정책이 한다)
+grant select, insert, update, delete on public.ul_contact_reviews to authenticated;
+grant select, insert, update, delete on public.ul_contact_reviews to service_role;
+
 drop policy if exists ul_cr_admin on ul_contact_reviews;
 
 -- 조회·추가·수정·삭제 전부 관리자만. 일반 사용자가 조회하면 에러 없이 "빈 목록"이 돌아옵니다.
